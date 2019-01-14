@@ -1,0 +1,22 @@
+{
+  "name": "reductive-dev-tools",
+  "reason": {
+    "react-jsx": 2
+  },
+  "sources": {
+    "dir" : "src",
+    "subdirs" : true
+  },
+  "package-specs": [{
+    "module": "commonjs",
+    "in-source": false
+  }],
+  "suffix": ".bs.js",
+  "namespace": true,
+  "bs-dependencies": [
+    "reason-react",
+    "reductive"
+  ],
+  "refmt": 3,
+  "bsc-flags": ["-bs-g"]
+}

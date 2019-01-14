@@ -1,0 +1,41 @@
+{
+  "name": "reductive-dev-tools",
+  "version": "0.1.0",
+  "description": "reductive and reason-react reducer component integration with Redux DevTools",
+  "main": "index.js",
+  "scripts": {
+    "build": "./node_modules/.bin/bsb -make-world",
+    "dev": "./node_modules/.bin/bsb -make-world -w"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ambientlight/reductive-dev-tools.git"
+  },
+  "keywords": [
+    "redux",
+    "dev",
+    "tools",
+    "reductive",
+    "redux",
+    "reason",
+    "reasonml"
+  ],
+  "author": "ambientlight",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ambientlight/reductive-dev-tools/issues"
+  },
+  "homepage": "https://github.com/ambientlight/reductive-dev-tools#readme",
+  "devDependencies": {
+    "bs-platform": "^4.0.17",
+    "reason-cli": "^3.3.3-macos-1"
+  },
+  "peerDependencies": {
+    "reductive": "1.x",
+    "reason-react": ">= 0.5.1 < 1"
+  },
+  "dependencies": {
+    "reason-react": "^0.5.3",
+    "reductive": "^1.0.0"
+  }
+}
