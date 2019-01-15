@@ -53,6 +53,7 @@ module JsHelpers {
     function _serialize(obj, isNonRoot) {
       if(!obj){ return obj }
 
+      /* handle plain variants */
       if(typeof obj === 'number' && !isNonRoot){ 
         return {
           type: 'update',
@@ -78,6 +79,17 @@ module JsHelpers {
           ...object,
           [key]: _serialize(obj[index], true)
         }), {})
+      /**
+       * handle root discriminated unions when -bs-g flag is not set
+       * smilarly to plain variants
+       */
+      } else if(Array.isArray(obj) && !isNonRoot){
+        return {
+          type: 'update',
+          _rawValue: obj,
+          // pass tag since extension will ignore other keys inside arrays
+          _variant_tag: obj.tag
+        }
       } else {
         return obj
       }
@@ -127,9 +139,13 @@ module JsHelpers {
     function _serialize(obj) {
       if(!obj){ return obj }
 
-      // restore plain variants back (represented as numbers in js)
+      // restore plain variants and variants when running without -bs-g flag back
       if(obj.type == 'update' && obj._rawValue !== undefined){
-        return obj._rawValue
+        let target = obj._rawValue
+        if(obj._variant_tag !== undefined){
+          target.tag = obj._variant_tag 
+        }
+        return target
       }
 
       let target = Object.keys(obj).filter(key => key != 'tag' && key != 'type').reduce((target, key) => [
