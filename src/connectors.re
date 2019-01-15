@@ -151,8 +151,8 @@ module JsHelpers {
  * available here until variadic arguments are fixed on redux-devtools-core at 
  * https://github.com/reduxjs/redux-devtools/blob/7c3b78d312d3d2b3d4cd8ec9147c68e5c0296b6e/packages/redux-devtools-core/src/utils/index.js#L81
  */
-module ReduxDevToolsCoreHelpers {
-  let evalMethod: (ReduxDevTools.Monitor.ActionPayload.t('state, 'action), Js.Dict.t('actionCreator)) => 'action = [%bs.raw {| 
+module ExtensionCoreHelpers {
+  let evalMethod: (Extension.Monitor.ActionPayload.t('state, 'action), Js.Dict.t('actionCreator)) => 'action = [%bs.raw {| 
     function evalMethod(action, obj) {
       if (typeof action === 'string') {
         return new Function('return ' + action).call(obj);
@@ -188,7 +188,7 @@ module type StateProvider = {
 };
 
 module ConnectionHandler = (Store: StateProvider) => {
-  open ReduxDevTools.Monitor;
+  open Extension.Monitor;
 
   module Exceptions {
     exception PayloadNotFound(string);
@@ -198,7 +198,7 @@ module ConnectionHandler = (Store: StateProvider) => {
     exception ActionNotCaptureWhileExpected(string);
   };
 
-  let sweepLiftedState = (~devTools: ReduxDevTools.connection, ~liftedState: LiftedState.t('state, 'action), ~store: Store.t('state, 'action)) => {
+  let sweepLiftedState = (~devTools: Extension.connection, ~liftedState: LiftedState.t('state, 'action), ~store: Store.t('state, 'action)) => {
     let skippedActions = liftedState |. LiftedState.skippedActionIdsGet;
     let newLiftedState = skippedActions |> Array.fold_left((newLiftedState, _) => { 
       let skipped = newLiftedState |. LiftedState.skippedActionIdsGet |. Array.unsafe_get(0);
@@ -232,7 +232,7 @@ module ConnectionHandler = (Store: StateProvider) => {
         ~skippedActionIds,
         ~stagedActionIds);
     }, Js.Obj.assign(Js.Obj.empty(), liftedState |> Obj.magic) |> Obj.magic);
-    ReduxDevTools.send(~connection=devTools, ~action=Js.Null.empty, ~state=newLiftedState);
+    Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=newLiftedState);
 
     /* saw sweeping reseting the time travel if sweeping actions were beyond the time travel point */
     let jumpResetNeeded = Array.fold_left((jumpResetNeeded, skipped) => jumpResetNeeded || (skipped >= (liftedState |. LiftedState.currentStateIndexGet)), false, skippedActions);
@@ -322,7 +322,7 @@ module ConnectionHandler = (Store: StateProvider) => {
     
   };
 
-  let processDispatchPayload = (~devTools: ReduxDevTools.connection, ~store: Store.t('state, 'action), ~payload: ActionPayload.t('state, 'action), ~action: Action.t('state, 'action), ~initial: 'state, ~cachedLiftedState: ref(option(LiftedState.t('state, 'action)))) => {
+  let processDispatchPayload = (~devTools: Extension.connection, ~store: Store.t('state, 'action), ~payload: ActionPayload.t('state, 'action), ~action: Action.t('state, 'action), ~initial: 'state, ~cachedLiftedState: ref(option(LiftedState.t('state, 'action)))) => {
     let payloadType = payload |. ActionPayload.type_Get;
     switch(payloadType) {
       | "LOCK_CHANGES" => {
@@ -333,11 +333,11 @@ module ConnectionHandler = (Store: StateProvider) => {
          */
         ()
       };
-      | "COMMIT" => ReduxDevTools.init(~connection=devTools, ~state=Store.getState(store));
+      | "COMMIT" => Extension.init(~connection=devTools, ~state=Store.getState(store));
       | "RESET" => { 
         Store.mutateState(~state=initial, ~store);
         Store.notifyListeners(store);
-        ReduxDevTools.init(~connection=devTools, ~state=Store.getState(store));
+        Extension.init(~connection=devTools, ~state=Store.getState(store));
       };
       | "IMPORT_STATE" => {
         let nextLiftedState = payload |. ActionPayload.nextLiftedStateGet |. Belt.Option.getExn;
@@ -346,7 +346,7 @@ module ConnectionHandler = (Store: StateProvider) => {
         
         Store.mutateState(~state=JsHelpers.deserializeObject(targetState), ~store);
         Store.notifyListeners(store);
-        ReduxDevTools.send(~connection=devTools, ~action=Js.Null.empty, ~state=nextLiftedState);
+        Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=nextLiftedState);
       };
       | "SWEEP" => {
         /**
@@ -354,7 +354,7 @@ module ConnectionHandler = (Store: StateProvider) => {
          * SWEEP is not performed on extension side.  
          * 
          * we can perform SWEEP on our side but 
-         * reduxDevTools is not exposing liftedState to us
+         * Extension is not exposing liftedState to us
          * so we are only able to perform the sweep with the latest cached liftedState
          * that is exposed to us during TOGGLE_ACTION 
          * 
@@ -379,7 +379,7 @@ module ConnectionHandler = (Store: StateProvider) => {
 
         Store.mutateState(~state=JsHelpers.deserializeObject(parse(stateString)), ~store);
         Store.notifyListeners(store);
-        ReduxDevTools.init(~connection=devTools, ~state=Store.getState(store));
+        Extension.init(~connection=devTools, ~state=Store.getState(store));
       };
       | "JUMP_TO_STATE"
       | "JUMP_TO_ACTION" => {
@@ -423,7 +423,7 @@ module ConnectionHandler = (Store: StateProvider) => {
           |. unwrap(Exceptions.StateNotFound({j|action($payloadType) doesn't contain state while expected|j}));
         
           let liftedState = parse(stateString) |> Obj.magic;
-          ReduxDevTools.send(~connection=devTools, ~action=Js.Null.empty, ~state=processToogleAction(~store, ~payload, ~liftedState, ~cachedLiftedState));
+          Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=processToogleAction(~store, ~payload, ~liftedState, ~cachedLiftedState));
           Store.notifyListeners(store);
         };
         | false => () 
@@ -432,7 +432,7 @@ module ConnectionHandler = (Store: StateProvider) => {
     };
   }
 
-  let onMonitorDispatch = (~action: Action.t('state, 'action), ~devTools: ReduxDevTools.connection, ~store: Store.t('state, 'action), ~initial: 'state, ~cachedLiftedState: ref(option(LiftedState.t('state, 'action)))) => {
+  let onMonitorDispatch = (~action: Action.t('state, 'action), ~devTools: Extension.connection, ~store: Store.t('state, 'action), ~initial: 'state, ~cachedLiftedState: ref(option(LiftedState.t('state, 'action)))) => {
     let payload = action 
       |. Action.payloadGet 
       |. unwrap(Exceptions.PayloadNotFound("action doesn't contain payload while expected"));
@@ -446,14 +446,14 @@ module ConnectionHandler = (Store: StateProvider) => {
       |. unwrap(Exceptions.PayloadNotFound("action doesn't contain payload while expected"));
 
     switch(actionCreators){
-    | Some(actionCreators) => Store.dispatch(~action=ReduxDevToolsCoreHelpers.evalMethod(payload, Obj.magic(actionCreators)), ~store)
+    | Some(actionCreators) => Store.dispatch(~action=ExtensionCoreHelpers.evalMethod(payload, Obj.magic(actionCreators)), ~store)
     | None => ()
     };
   };
 
-  let handle = (~connection: ReactTemplate.ReduxDevTools.connection, ~store: Store.t('state, 'action), ~actionCreators: option(Js.Dict.t('actionCreator))=?) => {
+  let handle = (~connection: Extension.connection, ~store: Store.t('state, 'action), ~actionCreators: option(Js.Dict.t('actionCreator))=?) => {
     let initialState = Store.getState(store); 
-    ReduxDevTools.init(~connection, ~state=JsHelpers.serializeObject(initialState));
+    Extension.init(~connection, ~state=JsHelpers.serializeObject(initialState));
 
     /**
      * mutable cached lifted state is used for:
@@ -461,7 +461,7 @@ module ConnectionHandler = (Store: StateProvider) => {
      * 2. ignoring the jump to those skipped states
      */
     let cachedLiftedState: ref(option(LiftedState.t('state, 'action))) = ref(None);
-    let _unsubscribe = ReduxDevTools.subscribe(~connection, ~listener=(action: Action.t('state, 'action)) => {
+    let _unsubscribe = Extension.subscribe(~connection, ~listener=(action: Action.t('state, 'action)) => {
       switch(action |. Action.type_Get){
       | "DISPATCH" => onMonitorDispatch(~action, ~devTools=connection, ~store, ~initial=initialState, ~cachedLiftedState)
       | "ACTION" => onRemoteAction(~action, ~store, ~actionCreators?, ()) 
@@ -528,9 +528,9 @@ module ReductiveConnectionHandler = ConnectionHandler(ReductiveStateProvider);
  * unavailable until https://github.com/zalmoxisus/redux-devtools-extension/issues/618#issuecomment-449780372
  * is implemented or we decide to replicate the liftedState on our side
  */
-let defaultOptions = connectionId => ReduxDevTools.enhancerOptions(
+let defaultOptions = connectionId => Extension.enhancerOptions(
   ~name=connectionId,
-  ~features=ReduxDevTools.enhancerFeatures(
+  ~features=Extension.enhancerFeatures(
     ~lock=false,
     ~pause=true,
     ~persist=true,
@@ -545,12 +545,12 @@ let defaultOptions = connectionId => ReduxDevTools.enhancerOptions(
   ()
 );
 
-let constructOptions: (ReduxDevTools.enhancerOptions('actionCreator), ReduxDevTools.enhancerOptions('actionCreator)) => ReduxDevTools.enhancerOptions('actionCreator) = (options, defaults) => {
+let constructOptions: (Extension.enhancerOptions('actionCreator), Extension.enhancerOptions('actionCreator)) => Extension.enhancerOptions('actionCreator) = (options, defaults) => {
   /* combine both first */
   let target = Js.Obj.assign(defaults |> Obj.magic, options |> Obj.magic);
   /* override serialize and make sure unsupported features are disabled */
   Js.Obj.assign(target, {
-    "serialize": ReduxDevTools.serializeOptions(
+    "serialize": Extension.serializeOptions(
       ~symbol=true,
       /* ~replacer=Helpers.serializeWithRecordKeys, */
       ()
@@ -566,34 +566,31 @@ let constructOptions: (ReduxDevTools.enhancerOptions('actionCreator), ReduxDevTo
   }) |> Obj.magic
 };
 
-module Enhancers {
-  
-  let reduxDevTools: (ReduxDevTools.enhancerOptions('actionCreator)) => storeEnhancer('action, 'state) = (options: ReduxDevTools.enhancerOptions('actionCreator)) => (storeCreator: storeCreator('action, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
-    let targetOptions = constructOptions(options, defaultOptions("ReductiveDevTools"));
-    let devTools = ReduxDevTools.connect(~extension=ReduxDevTools.devToolsEnhancer, ~options=targetOptions);
-    let devToolsDispatch = (store, next, action) => {
-      let target = switch (enhancer) {
-        | Some(enhancer) => enhancer(store, next, action)
-        | None => next(action)
-      };
-      
-      ReduxDevTools.send(~connection=devTools, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(Reductive.Store.getState(store)));
-      target
+let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('action, 'state) = (options: Extension.enhancerOptions('actionCreator)) => (storeCreator: storeCreator('action, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
+  let targetOptions = constructOptions(options, defaultOptions("ReductiveDevTools"));
+  let devTools = Extension.connect(~extension=Extension.devToolsEnhancer, ~options=targetOptions);
+  let devToolsDispatch = (store, next, action) => {
+    let target = switch (enhancer) {
+      | Some(enhancer) => enhancer(store, next, action)
+      | None => next(action)
     };
-  
-    let store = storeCreator(~reducer, ~preloadedState, ~enhancer=devToolsDispatch, ());
-    let actionCreators = targetOptions|.ReduxDevTools.actionCreatorsGet;
-    ReductiveConnectionHandler.handle(~connection=devTools, ~store=Obj.magic(store), ~actionCreators?);
-    store;
+    
+    Extension.send(~connection=devTools, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(Reductive.Store.getState(store)));
+    target
   };
+
+  let store = storeCreator(~reducer, ~preloadedState, ~enhancer=devToolsDispatch, ());
+  let actionCreators = targetOptions|.Extension.actionCreatorsGet;
+  ReductiveConnectionHandler.handle(~connection=devTools, ~store=Obj.magic(store), ~actionCreators?);
+  store;
 };
 
-let connections: Js.Dict.t(ReduxDevTools.connection) = Js.Dict.empty();
+let connections: Js.Dict.t(Extension.connection) = Js.Dict.empty();
 
 let register = (
   ~connectionId: string, 
   ~component: ReasonReact.self('state, 'b, [> `DevToolStateUpdate('state) ]),
-  ~options: option(ReduxDevTools.enhancerOptions('actionCreator))=?,
+  ~options: option(Extension.enhancerOptions('actionCreator))=?,
   ()
 ) => {
 
@@ -602,12 +599,12 @@ let register = (
   | None => defaultOptions(connectionId)
   };
 
-  let devTools = ReduxDevTools.connect(~extension=ReduxDevTools.devToolsEnhancer, ~options=targetOptions);
-  let actionCreators = targetOptions|.ReduxDevTools.actionCreatorsGet;
+  let devTools = Extension.connect(~extension=Extension.devToolsEnhancer, ~options=targetOptions);
+  let actionCreators = targetOptions|.Extension.actionCreatorsGet;
   Js.Dict.set(connections, connectionId, devTools);
   Js.Dict.set(retainedStates, connectionId, component.state |> Obj.magic);
 
-  ReduxDevTools.init(~connection=devTools, ~state=JsHelpers.serializeObject(component.state));
+  Extension.init(~connection=devTools, ~state=JsHelpers.serializeObject(component.state));
   ComponentConnectionHandler.handle(
     ~connection=devTools, 
     ~store=Obj.magic({
@@ -625,6 +622,6 @@ let send = (~connectionId: string, ~action: ([> `DevToolStateUpdate('state) ]), 
   switch(action){
   /* do not pass DevToolsStateUpdate originated from extension */
   | `DevToolStateUpdate(_) => ()
-  | _ => ReduxDevTools.send(~connection, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(state))
+  | _ => Extension.send(~connection, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(state))
   };
 };

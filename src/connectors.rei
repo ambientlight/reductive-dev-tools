@@ -20,14 +20,12 @@ type storeEnhancer('action, 'state) =
 type applyMiddleware('action, 'state) =
   middleware('action, 'state) => storeEnhancer('action, 'state);
 
-module Enhancers {
-  let reduxDevTools: ReduxDevTools.enhancerOptions('actionCreator) => storeEnhancer('action, 'state)
-};
+let reductiveEnhancer: Extension.enhancerOptions('actionCreator) => storeEnhancer('action, 'state)
 
 let register: (
   ~connectionId: string,
   ~component: ReasonReact.self('state, 'b, [> `DevToolStateUpdate('state) ]),
-  ~options: ReduxDevTools.enhancerOptions('actionCreator)=?, 
+  ~options: Extension.enhancerOptions('actionCreator)=?, 
   unit
 ) => unit;
 
