@@ -29,4 +29,5 @@ let register: (
   unit
 ) => unit;
 
+let unsubscribe: (~connectionId: string) => unit;
 let send: (~connectionId: string, ~action: ([> `DevToolStateUpdate('state) ]), ~state: 'state) => unit;

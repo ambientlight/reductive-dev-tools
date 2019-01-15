@@ -630,6 +630,15 @@ let register = (
     ~actionCreators?);
 };
 
+let unsubscribe = (~connectionId: string) => {
+  let connection = Js.Dict.get(connections, connectionId)
+    |. unwrap(ComponentConnectionHandler.Exceptions.ConnectionNotFound("DevTool connection(id=$connectionId) not found"));
+  
+  Js.Dict.unsafeDeleteKey(. connections |> Obj.magic, connectionId);
+  Js.Dict.unsafeDeleteKey(. retainedStates |> Obj.magic, connectionId);
+  Extension.unsubscribe(~connection);
+}
+
 let send = (~connectionId: string, ~action: ([> `DevToolStateUpdate('state) ]), ~state: 'state) => {
   let connection = Js.Dict.get(connections, connectionId)
     |. unwrap(ComponentConnectionHandler.Exceptions.ConnectionNotFound("DevTool connection(id=$connectionId) not found"));
