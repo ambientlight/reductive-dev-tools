@@ -1,6 +1,8 @@
 ## reductive-dev-tools
 
-reductive and reason-react reducer component integration with Redux DevTools.
+[reductive](https://github.com/reasonml-community/reductive) and [reason-react](https://github.com/reasonml/reason-react) reducer component integration with Redux DevTools.
+
+![image](assets/demo.gif)
 
 ## Installation 
 via npm:
@@ -8,6 +10,7 @@ via npm:
 ```bash
 npm install --save-dev reductive-dev-tools
 ```
+then add `reductive-dev-tools` to your "bs-dependencies" inside `bsconfig.json`
 
 ## Caveats
 
@@ -45,7 +48,7 @@ let storeEnhancer =
 let storeCreator = storeEnhancer @@ Reductive.Store.create;
 ```
 
-## Experimental: Direct Usage with ReasonReact reducer component
+## Experimental: Direct API with ReasonReact reducer component
 
 1. Create devtools connection with `ReductiveDevTools.Connectors.register()`.
 
