@@ -65,7 +65,7 @@ let storeCreator = storeEnhancer @@ Reductive.Store.create;
 	```
 2. Retain an action... inside your component state... (yeah...)
 	
-	```
+	```reason
 	/* State declaration */
 	type state = {
 	  count: int,
