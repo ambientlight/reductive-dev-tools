@@ -48,7 +48,7 @@ let storeEnhancer =
 let storeCreator = storeEnhancer @@ Reductive.Store.create;
 ```
 
-## Experimental: Direct API with ReasonReact reducer component
+## Experimental: ReasonReact reducer component via direct API
 
 1. Create devtools connection with `ReductiveDevTools.Connectors.register()`.
 
