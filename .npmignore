@@ -1,0 +1,6 @@
+assets/
+
+lib/bs/
+.merlin
+.bsb.lock
+.tgz
