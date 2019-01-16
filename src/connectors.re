@@ -203,6 +203,22 @@ module type StateProvider = {
   let skipSupported: bool;
 };
 
+type connectionMeta('state, 'action) = {
+  /**
+   * mutable cached lifted state is used for:
+   * 1. sweeping
+   * 2. ignoring the jump to those skipped states
+   */
+  mutable liftedState: option(Extension.Monitor.LiftedState.t('state, 'action)),
+
+  /**
+   * record the rewind action index and count
+   * so we can drop the dispatched actions when rewinded back
+   */
+  mutable rewindActionIdx: option(int),
+  mutable actionCount: int
+};
+
 module ConnectionHandler = (Store: StateProvider) => {
   open Extension.Monitor;
 
@@ -214,7 +230,7 @@ module ConnectionHandler = (Store: StateProvider) => {
     exception ActionNotCaptureWhileExpected(string);
   };
 
-  let sweepLiftedState = (~devTools: Extension.connection, ~liftedState: LiftedState.t('state, 'action), ~store: Store.t('state, 'action)) => {
+  let sweepLiftedState = (~devTools: Extension.connection, ~liftedState: LiftedState.t('state, 'action), ~store: Store.t('state, 'action), ~meta: connectionMeta('state, 'action)) => {
     let skippedActions = liftedState |. LiftedState.skippedActionIdsGet;
     let newLiftedState = skippedActions |> Array.fold_left((newLiftedState, _) => { 
       let skipped = newLiftedState |. LiftedState.skippedActionIdsGet |. Array.unsafe_get(0);
@@ -248,6 +264,8 @@ module ConnectionHandler = (Store: StateProvider) => {
         ~skippedActionIds,
         ~stagedActionIds);
     }, Js.Obj.assign(Js.Obj.empty(), liftedState |> Obj.magic) |> Obj.magic);
+    
+    meta.actionCount = (newLiftedState |. LiftedState.nextActionIdGet) - 1;
     Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=newLiftedState);
 
     /* saw sweeping reseting the time travel if sweeping actions were beyond the time travel point */
@@ -263,7 +281,7 @@ module ConnectionHandler = (Store: StateProvider) => {
     };
   };
 
-  let processToogleAction = (~store: Store.t('action, 'state), ~payload: ActionPayload.t('state, 'action), ~liftedState: LiftedState.t('state, 'action), ~cachedLiftedState: ref(option(LiftedState.t('state, 'action)))) => {
+  let processToogleAction = (~store: Store.t('action, 'state), ~payload: ActionPayload.t('state, 'action), ~liftedState: LiftedState.t('state, 'action), ~meta: connectionMeta('state, 'action)) => {
     let skippedActions = liftedState |. LiftedState.skippedActionIdsGet;
     let stagedActions = liftedState |. LiftedState.stagedActionIdsGet;
     let computedStates = liftedState |. LiftedState.computedStatesGet;
@@ -290,6 +308,9 @@ module ConnectionHandler = (Store: StateProvider) => {
 
       Store.mutateState(~state=JsHelpers.deserializeObject(initialState), ~store);
       
+      /** a bit hacky */
+      let preservedActionCount = meta.actionCount;
+
       /** 
        * dispatch all actions except already skipped and update lifted state accordingly
        */
@@ -307,6 +328,9 @@ module ConnectionHandler = (Store: StateProvider) => {
             Array.get(computedStates, i),
             JsHelpers.serializeObject(Store.getState(store)));
         });
+
+      /** a bit hacky */
+      meta.actionCount = preservedActionCount;
 
       /* 
        * jump back to correct state during time travel
@@ -332,13 +356,13 @@ module ConnectionHandler = (Store: StateProvider) => {
        * 1. sweeping
        * 2. ignoring the jump to those skipped states 
        */
-      cachedLiftedState := Some(liftedState);
+      meta.liftedState = Some(liftedState);
       liftedState
     };
     
   };
 
-  let processDispatchPayload = (~devTools: Extension.connection, ~store: Store.t('state, 'action), ~payload: ActionPayload.t('state, 'action), ~action: Action.t('state, 'action), ~initial: 'state, ~cachedLiftedState: ref(option(LiftedState.t('state, 'action)))) => {
+  let processDispatchPayload = (~devTools: Extension.connection, ~store: Store.t('state, 'action), ~payload: ActionPayload.t('state, 'action), ~action: Action.t('state, 'action), ~initial: 'state, ~meta: connectionMeta('state, 'action)) => {
     let payloadType = payload |. ActionPayload.type_Get;
     switch(payloadType) {
       | "LOCK_CHANGES" => {
@@ -349,10 +373,14 @@ module ConnectionHandler = (Store: StateProvider) => {
          */
         ()
       };
-      | "COMMIT" => Extension.init(~connection=devTools, ~state=Store.getState(store));
+      | "COMMIT" => {
+        meta.actionCount = 0;
+        Extension.init(~connection=devTools, ~state=Store.getState(store));
+      };
       | "RESET" => { 
         Store.mutateState(~state=initial, ~store);
         Store.notifyListeners(store);
+        meta.actionCount = 0;
         Extension.init(~connection=devTools, ~state=Store.getState(store));
       };
       | "IMPORT_STATE" => {
@@ -362,6 +390,8 @@ module ConnectionHandler = (Store: StateProvider) => {
         
         Store.mutateState(~state=JsHelpers.deserializeObject(targetState), ~store);
         Store.notifyListeners(store);
+
+        meta.actionCount = (nextLiftedState |. LiftedState.nextActionIdGet) - 1;
         Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=nextLiftedState);
       };
       | "SWEEP" => {
@@ -382,9 +412,11 @@ module ConnectionHandler = (Store: StateProvider) => {
          * where sweepLatestLiftedState implementation will be relevant
          */
 
-        let liftedState = unwrap(cachedLiftedState^, Exceptions.LiftedStateNotCachedWhileExpected("liftedState hasn't been cached while expected"));
-        sweepLiftedState(~devTools, ~liftedState, ~store);
-        cachedLiftedState := None;
+        /*
+        let liftedState = unwrap(meta.liftedState, Exceptions.LiftedStateNotCachedWhileExpected("liftedState hasn't been cached while expected"));
+        sweepLiftedState(~devTools, ~liftedState, ~store, ~meta);
+        meta.liftedState = None;
+        */
 
         ()
       };
@@ -395,6 +427,7 @@ module ConnectionHandler = (Store: StateProvider) => {
 
         Store.mutateState(~state=JsHelpers.deserializeObject(parse(stateString)), ~store);
         Store.notifyListeners(store);
+        meta.actionCount = 0;
         Extension.init(~connection=devTools, ~state=Store.getState(store));
       };
       | "JUMP_TO_STATE"
@@ -407,10 +440,11 @@ module ConnectionHandler = (Store: StateProvider) => {
         let stateString = action 
           |. Action.stateGet 
           |. unwrap(Exceptions.StateNotFound({j|action($payloadType) doesn't contain state while expected|j}));
-
-        switch(cachedLiftedState^){
+        let actionId = Belt.Option.getExn(payload |. ActionPayload.actionIdGet);
+        
+        meta.rewindActionIdx = actionId == meta.actionCount ? None : Some(actionId);
+        switch(meta.liftedState){
         | Some(liftedState) => {
-          let actionId = Belt.Option.getExn(payload |. ActionPayload.actionIdGet);
           let actionInLiftedStateRange = actionId < (liftedState |. LiftedState.nextActionIdGet);
           if(actionInLiftedStateRange){
             let skippedActions = liftedState |. LiftedState.skippedActionIdsGet;
@@ -444,7 +478,7 @@ module ConnectionHandler = (Store: StateProvider) => {
           |. unwrap(Exceptions.StateNotFound({j|action($payloadType) doesn't contain state while expected|j}));
         
           let liftedState = parse(stateString) |> Obj.magic;
-          Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=processToogleAction(~store, ~payload, ~liftedState, ~cachedLiftedState));
+          Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=processToogleAction(~store, ~payload, ~liftedState, ~meta));
           Store.notifyListeners(store);
         };
         | false => () 
@@ -453,12 +487,12 @@ module ConnectionHandler = (Store: StateProvider) => {
     };
   }
 
-  let onMonitorDispatch = (~action: Action.t('state, 'action), ~devTools: Extension.connection, ~store: Store.t('state, 'action), ~initial: 'state, ~cachedLiftedState: ref(option(LiftedState.t('state, 'action)))) => {
+  let onMonitorDispatch = (~action: Action.t('state, 'action), ~devTools: Extension.connection, ~store: Store.t('state, 'action), ~initial: 'state, ~meta: connectionMeta('state, 'action)) => {
     let payload = action 
       |. Action.payloadGet 
       |. unwrap(Exceptions.PayloadNotFound("action doesn't contain payload while expected"));
 
-    processDispatchPayload(~devTools, ~store, ~payload, ~action, ~initial, ~cachedLiftedState);
+    processDispatchPayload(~devTools, ~store, ~payload, ~action, ~initial, ~meta);
   };
 
   let onRemoteAction = (~action: Action.t('state, 'action), ~store: Store.t('action, 'state), ~actionCreators: option(Js.Dict.t('actionCreator))=?, ()) => {
@@ -472,19 +506,13 @@ module ConnectionHandler = (Store: StateProvider) => {
     };
   };
 
-  let handle = (~connection: Extension.connection, ~store: Store.t('state, 'action), ~actionCreators: option(Js.Dict.t('actionCreator))=?) => {
+  let handle = (~connection: Extension.connection, ~store: Store.t('state, 'action), ~meta: connectionMeta('state, 'action), ~actionCreators: option(Js.Dict.t('actionCreator))=?) => {
     let initialState = Store.getState(store); 
     Extension.init(~connection, ~state=JsHelpers.serializeObject(initialState));
 
-    /**
-     * mutable cached lifted state is used for:
-     * 1. sweeping
-     * 2. ignoring the jump to those skipped states
-     */
-    let cachedLiftedState: ref(option(LiftedState.t('state, 'action))) = ref(None);
     let _unsubscribe = Extension.subscribe(~connection, ~listener=(action: Action.t('state, 'action)) => {
       switch(action |. Action.type_Get){
-      | "DISPATCH" => onMonitorDispatch(~action, ~devTools=connection, ~store, ~initial=initialState, ~cachedLiftedState)
+      | "DISPATCH" => onMonitorDispatch(~action, ~devTools=connection, ~store, ~initial=initialState, ~meta)
       | "ACTION" => onRemoteAction(~action, ~store, ~actionCreators?, ()) 
       /* do something on start if needed */
       | "START" => ()
@@ -590,19 +618,40 @@ let constructOptions: (Extension.enhancerOptions('actionCreator), Extension.enha
 let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('action, 'state) = (options: Extension.enhancerOptions('actionCreator)) => (storeCreator: storeCreator('action, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
   let targetOptions = constructOptions(options, defaultOptions("ReductiveDevTools"));
   let devTools = Extension.connect(~extension=Extension.devToolsEnhancer, ~options=targetOptions);
+
+  let meta = {
+    liftedState: None,
+    rewindActionIdx: None,
+    actionCount: 0
+  };
+
   let devToolsDispatch = (store, next, action) => {
-    let target = switch (enhancer) {
-      | Some(enhancer) => enhancer(store, next, action)
-      | None => next(action)
+    let propageAction = (store, next, action) => { 
+      switch (enhancer) {
+        | Some(enhancer) => enhancer(store, next, action)
+        | None => next(action)
+      };
+
+      meta.actionCount = meta.actionCount + 1;
+      Extension.send(~connection=devTools, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(Reductive.Store.getState(store)));
     };
-    
-    Extension.send(~connection=devTools, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(Reductive.Store.getState(store)));
-    target
+
+    switch(meta.rewindActionIdx){
+    | Some(rewindIdx) => {
+      /**
+       * do not propage action if rewindActionIdx is set and smaller then last actionIdx
+       */
+      if(rewindIdx >= meta.actionCount){
+        propageAction(store, next, action)
+      };
+    };
+    | _ => propageAction(store, next, action)
+    };
   };
 
   let store = storeCreator(~reducer, ~preloadedState, ~enhancer=devToolsDispatch, ());
   let actionCreators = targetOptions|.Extension.actionCreatorsGet;
-  ReductiveConnectionHandler.handle(~connection=devTools, ~store=Obj.magic(store), ~actionCreators?);
+  ReductiveConnectionHandler.handle(~connection=devTools, ~store=Obj.magic(store), ~meta, ~actionCreators?);
   store;
 };
 
@@ -624,14 +673,20 @@ let register = (
   let actionCreators = targetOptions|.Extension.actionCreatorsGet;
   Js.Dict.set(connections, connectionId, devTools);
   Js.Dict.set(retainedStates, connectionId, component.state |> Obj.magic);
+  
+  let meta = {
+    liftedState: None,
+    rewindActionIdx: None,
+    actionCount: 0
+  };
 
-  Extension.init(~connection=devTools, ~state=JsHelpers.serializeObject(component.state));
   ComponentConnectionHandler.handle(
     ~connection=devTools, 
     ~store=Obj.magic({
       component: component |> Obj.magic,
       connectionId: connectionId
     }),
+    ~meta,
     ~actionCreators?);
 };
 

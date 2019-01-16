@@ -16,6 +16,7 @@ then add `reductive-dev-tools` to your "bs-dependencies" inside `bsconfig.json`
 
 1. Add `-bs-g` into `"bsc-flags"` of your **bsconfig.json** to have variant and record field names available inside extension.
 2. Prefer variants with associated data to plain (`SomeAction(unit)` to `SomeAction`) since plain varaints do no carry debug metedata with them (represented as numbers in js)
+3. Extension will be locked (newly dispatched actions will be ignored) when you jump back in action history.
 
 ## Supported DevTools Features
 
