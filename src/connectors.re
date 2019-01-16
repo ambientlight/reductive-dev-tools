@@ -411,19 +411,24 @@ module ConnectionHandler = (Store: StateProvider) => {
         switch(cachedLiftedState^){
         | Some(liftedState) => {
           let actionId = Belt.Option.getExn(payload |. ActionPayload.actionIdGet);
-          let skippedActions = liftedState |. LiftedState.skippedActionIdsGet;
-          let computedStates = liftedState |. LiftedState.computedStatesGet;
-    
-          let nonSkippedIdx = ref(actionId);
-          while(Js.Array.includes(nonSkippedIdx^, skippedActions)){
-            nonSkippedIdx := nonSkippedIdx^ - 1;
-          };
+          let actionInLiftedStateRange = actionId < (liftedState |. LiftedState.nextActionIdGet);
+          if(actionInLiftedStateRange){
+            let skippedActions = liftedState |. LiftedState.skippedActionIdsGet;
+            let computedStates = liftedState |. LiftedState.computedStatesGet;
 
-          let targetState = computedStates
-            |. Array.get(nonSkippedIdx^)
-            |. ComputedState.stateGet;
+            let nonSkippedIdx = ref(actionId);
+            while(Js.Array.includes(nonSkippedIdx^, skippedActions)){
+              nonSkippedIdx := nonSkippedIdx^ - 1;
+            };
 
-          Store.mutateState(~state=JsHelpers.deserializeObject(targetState), ~store);
+            let targetState = computedStates
+              |. Array.get(nonSkippedIdx^)
+              |. ComputedState.stateGet;
+
+            Store.mutateState(~state=JsHelpers.deserializeObject(targetState), ~store);
+          } else {
+            Store.mutateState(~state=JsHelpers.deserializeObject(parse(stateString)), ~store);
+          }
         }
         | None => {
           Store.mutateState(~state=JsHelpers.deserializeObject(parse(stateString)), ~store);
