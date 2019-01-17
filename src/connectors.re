@@ -17,20 +17,20 @@ type reducer('action, 'state) = ('state, 'action) => 'state;
 type middleware('action, 'state) =
   (store('action, 'state), 'action => unit, 'action) => unit;
 
-type storeCreator('action, 'state) =
+type storeCreator('action, 'origin, 'state) =
   (
-    ~reducer: reducer('action, 'state),
+    ~reducer: reducer('action, 'origin),
     ~preloadedState: 'state,
     ~enhancer: middleware('action, 'state)=?,
     unit
   ) =>
   store('action, 'state);
 
-type storeEnhancer('action, 'state) =
-  storeCreator('action, 'state) => storeCreator('action, 'state);
+type storeEnhancer('action, 'origin, 'state) =
+  storeCreator('action, 'origin, 'state) => storeCreator('action, 'origin, 'state);
 
-type applyMiddleware('action, 'state) =
-  middleware('action, 'state) => storeEnhancer('action, 'state);
+type applyMiddleware('action, 'origin, 'state) =
+  middleware('action, 'state) => storeEnhancer('action, 'origin, 'state);
 
 let exposeStore: Reductive.Store.t('action, 'state) => t('action, 'state) = store => store |> Obj.magic;
 
@@ -615,7 +615,7 @@ let constructOptions: (Extension.enhancerOptions('actionCreator), Extension.enha
   }) |> Obj.magic
 };
 
-let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('action, 'state) = (options: Extension.enhancerOptions('actionCreator)) => (storeCreator: storeCreator('action, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
+let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('action, 'origin, 'state) = (options: Extension.enhancerOptions('actionCreator)) => (storeCreator: storeCreator('action, 'origin, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
   let targetOptions = constructOptions(options, defaultOptions("ReductiveDevTools"));
   let devTools = Extension.connect(~extension=Extension.devToolsEnhancer, ~options=targetOptions);
 
@@ -649,7 +649,7 @@ let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhan
     };
   };
 
-  let store = storeCreator(~reducer, ~preloadedState, ~enhancer=devToolsDispatch, ());
+  let store: store('action, 'state) = storeCreator(~reducer, ~preloadedState, ~enhancer=devToolsDispatch, ()) |> Obj.magic;
   let actionCreators = targetOptions|.Extension.actionCreatorsGet;
   ReductiveConnectionHandler.handle(~connection=devTools, ~store=Obj.magic(store), ~meta, ~actionCreators?);
   store;
