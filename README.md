@@ -1,6 +1,6 @@
 ## reductive-dev-tools
 
-[reductive](https://github.com/reasonml-community/reductive) and [reason-react](https://github.com/reasonml/reason-react) reducer component integration with Redux DevTools.
+[reductive](https://github.com/reasonml-community/reductive) and [reason-react](https://github.com/reasonml/reason-react) reducer component integration with [redux-devtools-extension](https://github.com/zalmoxisus/redux-devtools-extension)
 
 ![image](assets/demo.gif)
 
