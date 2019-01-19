@@ -581,7 +581,7 @@ module ComponentStateProvider: StateProvider {
   let dispatch = (~action: 'action, ~store: t('state, 'action)) => store.component.send(action)
   let notifyListeners = _ => ();
 
-  let skipNeedsExplicitEvaluation = false;
+  let skipNeedsExplicitEvaluation = true;
 };
 
 module ReductiveStateProvider: StateProvider {
@@ -595,7 +595,7 @@ module ReductiveStateProvider: StateProvider {
   let dispatch = (~action: 'action, ~store: t('state, 'action)) => Reductive.Store.dispatch(store, action);
   let notifyListeners = (store: t('state, 'action)) => exposeStore(store).listeners |> List.iter(listener => listener());
 
-  let skipNeedsExplicitEvaluation = true;
+  let skipNeedsExplicitEvaluation = false;
 };
 
 module ComponentConnectionHandler = ConnectionHandler(ComponentStateProvider);
