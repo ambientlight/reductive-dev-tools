@@ -1,6 +1,6 @@
 {
   "name": "reductive-dev-tools",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "reductive and reason-react reducer component integration with Redux DevTools",
   "main": "lib/js/src/reductiveDevTools.bs.js",
   "scripts": {

@@ -710,14 +710,51 @@ let unsubscribe = (~connectionId: string) => {
   Extension.unsubscribe(~connection=connectionInfo.connection);
 };
 
-let send = (~connectionId: string, ~action: ([> `DevToolStateUpdate('state) ]), ~state: 'state) => {
-  let connectionInfo = Js.Dict.get(connections, connectionId)
-    |. unwrap(ComponentConnectionHandler.Exceptions.ConnectionNotFound("DevTool connection(id=$connectionId) not found"));
+[@bs.val][@bs.scope "console"] 
+external warn: 'a => unit = "warn";
+
+type componentReducer('state, 'retainedProps, 'action) = ('action, 'state) => ReasonReact.update('state, 'retainedProps, 'action)
+let componentReducerEnhancer: (string,
+  componentReducer('state, 'retainedProps, ([> `DevToolStateUpdate('state) ] as 'a))) =>
+    componentReducer('state, 'retainedProps, 'a) = (connectionId, reducer) => {
   
-  connectionInfo.retainedState = state |> Obj.magic;
-  switch(action){
-  /* do not pass DevToolsStateUpdate originated from extension */
-  | `DevToolStateUpdate(_) => ()
-  | _ => Extension.send(~connection=connectionInfo.connection, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(state))
-  };
+  (action, state) =>
+    switch(Js.Dict.get(connections, connectionId)){
+    | None => {
+      warn("reductive-dev-tools connection not found while expected");
+      reducer(action, state);
+    }
+    | Some(connectionInfo) => {
+      let propageAction = (state, action) => {
+        let result = reducer(action, state);
+        switch(result, action){
+        /* do not pass DevToolsStateUpdate originated from extension */
+        | (_, `DevToolStateUpdate(state: 'state)) => ()
+        | (Update(state), _) => {
+          connectionInfo.meta.actionCount = connectionInfo.meta.actionCount + 1;
+          connectionInfo.retainedState = state |> Obj.magic;
+          Extension.send(~connection=connectionInfo.connection, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(state))
+        };
+        | _ => ()
+        };
+  
+        result
+      };
+  
+      switch(connectionInfo.meta.rewindActionIdx){
+      | Some(rewindIdx) => {
+        /**
+         * do not propage action if rewindActionIdx is set and smaller then last actionIdx
+         * if it's not a devToolStateUpdate action
+         */
+        let isDevToolsStateUpdateAction = switch(action){ | `DevToolStateUpdate(state) => true | _ => false };
+        if(rewindIdx >= connectionInfo.meta.actionCount || isDevToolsStateUpdateAction){
+          propageAction(state, action)
+        } else {
+          ReasonReact.NoUpdate
+        }
+      };
+      | _ => propageAction(state, action)
+      };
+    }}
 };

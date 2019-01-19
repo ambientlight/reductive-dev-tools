@@ -30,4 +30,8 @@ let register: (
 ) => unit;
 
 let unsubscribe: (~connectionId: string) => unit;
-let send: (~connectionId: string, ~action: ([> `DevToolStateUpdate('state) ]), ~state: 'state) => unit;
+
+type componentReducer('state, 'retainedProps, 'action) = ('action, 'state) => ReasonReact.update('state, 'retainedProps, 'action);
+let componentReducerEnhancer: (string,
+  componentReducer('state, 'retainedProps, ([> `DevToolStateUpdate('state) ] as 'a))) =>
+    componentReducer('state, 'retainedProps, 'a);

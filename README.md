@@ -49,7 +49,7 @@ let storeEnhancer =
 let storeCreator = storeEnhancer @@ Reductive.Store.create;
 ```
 
-## Experimental: ReasonReact reducer component via direct API
+## Usage with ReactReason reducer component
 
 1. Create devtools connection with `ReductiveDevTools.Connectors.register()`.
 
@@ -67,55 +67,22 @@ let storeCreator = storeEnhancer @@ Reductive.Store.create;
 	      ()), 
 	    ()),
 	```
-2. Retain an action... inside your component state... (yeah...)
+2. Wrap your reducer into `componentReducerEnhancer` with passed connectionId and handle actions dispatched from the monitor (`DevToolStateUpdate('state)`) to support rewind, revert, import extension features:
 	
 	```reason
-	/* State declaration */
-	type state = {
-	  count: int,
-	  show: bool,
-	
-	  preserved: preservedAction
-	} and preservedAction = {
-	  action: option([`Click(unit) | `Toggle(unit) | `DevToolStateUpdate(state)])
-	};
-	
-	/* your reducer */
-	reducer: (action, state) => {
-	  let stateWithAction = {...state, preserved: { action: Some(action) }};
-	  switch (action) {
-	  | `Click(_) => ReasonReact.Update({...stateWithAction, count: state.count + 1})
-	  | `Toggle(_) => ReasonReact.Update({...stateWithAction, show: !state.show})
-	  | `DevToolStateUpdate(devToolsState) => ReasonReact.Update({...devToolsState, preserved: { action: Some(action) }})
-	  }
+	/* inside your component */
+    reducer: ReductiveDevTools.Connectors.componentReducerEnhancer(connectionId, ((action, state) => {
+      switch (action) {
+      | `Click(_) => ReasonReact.Update({...state, count: state.count + 1})
+      | `Toggle(_) => ReasonReact.Update({...state, show: !state.show})
+      /* handle the actions dispatched from the dev tools monitor */
+      | `DevToolStateUpdate(devToolsState) => ReasonReact.Update(devToolsState)
+      }
+    })),
 	},
 	```
 
-3. Send new state and action with `ReductiveDevTools.Connectors.send()`
-
-	```reason
-	/* in your component */
-	willUpdate: ({newSelf}) =>
-	  switch(newSelf.state.preserved.action){
-	  | Some(action) => ReductiveDevTools.Connectors.send(~connectionId, ~action, ~state=newSelf.state);
-	  | None => ()
-	  },
-	```
-	
-4. Handle actions dispatched from the monitor (`DevToolStateUpdate('state)`)
-
-	```reason
-	/* your reducer */
-	reducer: (action, state) => {
-	  let stateWithAction = {...state, preserved: { action: Some(action) }};
-	  switch (action) {
-	  /* other actions */
-	  | `DevToolStateUpdate(devToolsState) => ReasonReact.Update({...devToolsState, preserved: { action: Some(action) }})
-	  }
-	},
-	```
-	
-5. Unsubscribe when needed with `ReductiveDevTools.Connectors.unsubscribe(~connectionId)`
+3. Unsubscribe when needed with `ReductiveDevTools.Connectors.unsubscribe(~connectionId)`
 
 ## Options
 
