@@ -200,7 +200,7 @@ module type StateProvider = {
   let notifyListeners: t('state, 'action) => unit;
   let dispatch: (~action: 'action, ~store: t('state, 'action)) => unit;
 
-  let skipSupported: bool;
+  let skipNeedsExplicitEvaluation: bool;
 };
 
 type connectionMeta('state, 'action) = {
@@ -216,8 +216,20 @@ type connectionMeta('state, 'action) = {
    * so we can drop the dispatched actions when rewinded back
    */
   mutable rewindActionIdx: option(int),
-  mutable actionCount: int
+  mutable actionCount: int,
+
+  connectionId: string
 };
+
+type componentReducer('state, 'retainedProps, 'action) = ('action, 'state) => ReasonReact.update('state, 'retainedProps, 'action);
+type componentConnectionInfo('state, 'retainedProps, 'action) = {
+  mutable retainedState: 'state,
+  mutable retainedReducer: componentReducer('state, 'retainedProps, 'action),
+  connection: Extension.connection,
+  meta: connectionMeta('state, 'action)
+};
+
+let connections: Js.Dict.t(componentConnectionInfo('state, 'retainedProps, 'action)) = Js.Dict.empty();
 
 module ConnectionHandler = (Store: StateProvider) => {
   open Extension.Monitor;
@@ -323,10 +335,28 @@ module ConnectionHandler = (Store: StateProvider) => {
             |. Belt.Option.getExn
             |. LiftedStateAction.actionGet;
           
-          Store.dispatch(~action=JsHelpers.deserializeVariant(targetAction), ~store);     
+          Store.dispatch(~action=JsHelpers.deserializeVariant(targetAction), ~store); 
+
+          /* 
+           * we should not directly grab the state associated from passed reducer component
+           * since it contains the state at the time of register() call
+           * instead, since we have state and reducer retained, use it to evaluate new state
+           */
+          let newState = if(Store.skipNeedsExplicitEvaluation){
+            let connectionInfo = Js.Dict.get(connections, meta.connectionId)
+              |. unwrap(Exceptions.ConnectionNotFound("DevTool connection(id=$connectionId) not found"));
+            connectionInfo.retainedState = switch(connectionInfo.retainedReducer(JsHelpers.deserializeVariant(targetAction), connectionInfo.retainedState)){
+            | Update(newState) => newState
+            | _ => connectionInfo.retainedState
+            };
+            connectionInfo.retainedState
+          } else {
+            Store.getState(store)
+          };
+          
           ComputedState.stateSet(
             Array.get(computedStates, i),
-            JsHelpers.serializeObject(Store.getState(store)));
+            JsHelpers.serializeObject(newState));
         });
 
       /** a bit hacky */
@@ -470,10 +500,8 @@ module ConnectionHandler = (Store: StateProvider) => {
 
         Store.notifyListeners(store);
       }
-      | "TOGGLE_ACTION" => 
-        switch(Store.skipSupported){
-        | true => {
-          let stateString = action 
+      | "TOGGLE_ACTION" => {
+        let stateString = action 
           |. Action.stateGet 
           |. unwrap(Exceptions.StateNotFound({j|action($payloadType) doesn't contain state while expected|j}));
         
@@ -486,8 +514,6 @@ module ConnectionHandler = (Store: StateProvider) => {
             Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=processToogleAction(~store, ~payload, ~liftedState, ~meta));
             Store.notifyListeners(store);
           };
-        };
-        | _ => () 
       }
       | _ => ()
     };
@@ -529,14 +555,6 @@ module ConnectionHandler = (Store: StateProvider) => {
 
 };
 
-type componentConnectionInfo('state, 'action) = {
-  mutable retainedState: 'state,
-  connection: Extension.connection,
-  meta: connectionMeta('state, 'action)
-};
-
-let connections: Js.Dict.t(componentConnectionInfo('state, 'action)) = Js.Dict.empty();
-
 type componentStore('state, 'action) = {
   component: ReasonReact.self('state, ReasonReact.noRetainedProps, 'action),
   connectionId: string
@@ -563,7 +581,7 @@ module ComponentStateProvider: StateProvider {
   let dispatch = (~action: 'action, ~store: t('state, 'action)) => store.component.send(action)
   let notifyListeners = _ => ();
 
-  let skipSupported = false;
+  let skipNeedsExplicitEvaluation = false;
 };
 
 module ReductiveStateProvider: StateProvider {
@@ -577,7 +595,7 @@ module ReductiveStateProvider: StateProvider {
   let dispatch = (~action: 'action, ~store: t('state, 'action)) => Reductive.Store.dispatch(store, action);
   let notifyListeners = (store: t('state, 'action)) => exposeStore(store).listeners |> List.iter(listener => listener());
 
-  let skipSupported = true;
+  let skipNeedsExplicitEvaluation = true;
 };
 
 module ComponentConnectionHandler = ConnectionHandler(ComponentStateProvider);
@@ -633,7 +651,8 @@ let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhan
   let meta = {
     liftedState: None,
     rewindActionIdx: None,
-    actionCount: 0
+    actionCount: 0,
+    connectionId: Belt.Option.getWithDefault(targetOptions|.Extension.nameGet, "ReductiveDevTools")
   };
 
   let devToolsDispatch = (store, next, action) => {
@@ -684,10 +703,12 @@ let register = (
   let connectionInfo = {
     connection: devTools,
     retainedState: component.state |> Obj.magic,
+    retainedReducer: (action, state) => ReasonReact.NoUpdate,
     meta: {
       liftedState: None,
       rewindActionIdx: None,
-      actionCount: 0
+      actionCount: 0,
+      connectionId
     }
   };
 
@@ -713,7 +734,6 @@ let unsubscribe = (~connectionId: string) => {
 [@bs.val][@bs.scope "console"] 
 external warn: 'a => unit = "warn";
 
-type componentReducer('state, 'retainedProps, 'action) = ('action, 'state) => ReasonReact.update('state, 'retainedProps, 'action)
 let componentReducerEnhancer: (string,
   componentReducer('state, 'retainedProps, ([> `DevToolStateUpdate('state) ] as 'a))) =>
     componentReducer('state, 'retainedProps, 'a) = (connectionId, reducer) => {
@@ -725,6 +745,11 @@ let componentReducerEnhancer: (string,
       reducer(action, state);
     }
     | Some(connectionInfo) => {
+      /** 
+       * side effect: retain reducer which we can use to evaluate new states during skipping 
+       */
+      connectionInfo.retainedReducer = reducer |> Obj.magic;
+
       let propageAction = (state, action) => {
         let result = reducer(action, state);
         switch(result, action){

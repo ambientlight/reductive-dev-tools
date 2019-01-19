@@ -28,7 +28,7 @@ then add `reductive-dev-tools` to your "bs-dependencies" inside `bsconfig.json`
 | export  | ✔         | ✔                 |
 | import  | ✔         | ✔                 |
 | jump    | ✔         | ✔                 |
-| skip    | ✔         | [#1](https://github.com/ambientlight/reductive-dev-tools/issues/1)|
+| skip    | ✔         | ✔                 |
 | sweep |    [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)       |     [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)              |
 | reorder |    [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)       |     [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)              |
 | dispatch| ✔         | ✔                 |
