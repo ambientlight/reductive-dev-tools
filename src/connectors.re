@@ -477,11 +477,17 @@ module ConnectionHandler = (Store: StateProvider) => {
           |. Action.stateGet 
           |. unwrap(Exceptions.StateNotFound({j|action($payloadType) doesn't contain state while expected|j}));
         
-          let liftedState = parse(stateString) |> Obj.magic;
-          Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=processToogleAction(~store, ~payload, ~liftedState, ~meta));
-          Store.notifyListeners(store);
+          /* block the toogle during rewind for now */
+          if(
+            (Belt.Option.isSome(meta.rewindActionIdx) && Belt.Option.getExn(meta.rewindActionIdx) >= meta.actionCount)
+            || Belt.Option.isNone(meta.rewindActionIdx)
+          ){
+            let liftedState = parse(stateString) |> Obj.magic;
+            Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=processToogleAction(~store, ~payload, ~liftedState, ~meta));
+            Store.notifyListeners(store);
+          };
         };
-        | false => () 
+        | _ => () 
       }
       | _ => ()
     };
@@ -523,8 +529,13 @@ module ConnectionHandler = (Store: StateProvider) => {
 
 };
 
-/** makes latest component state available (utilized in COMMIT) */
-let retainedStates: Js.Dict.t('state) = Js.Dict.empty(); 
+type componentConnectionInfo('state, 'action) = {
+  mutable retainedState: 'state,
+  connection: Extension.connection,
+  meta: connectionMeta('state, 'action)
+};
+
+let connections: Js.Dict.t(componentConnectionInfo('state, 'action)) = Js.Dict.empty();
 
 type componentStore('state, 'action) = {
   component: ReasonReact.self('state, ReasonReact.noRetainedProps, 'action),
@@ -538,7 +549,7 @@ module ComponentStateProvider: StateProvider {
    * component.state is immutable which corresponds to component state at registration
    * for now, resort to retainedState
    */
-  let getState = (store: t('state, 'action)) => Js.Dict.unsafeGet(retainedStates, store.connectionId) |> Obj.magic;
+  let getState = (store: t('state, 'action)) => Js.Dict.unsafeGet(connections, store.connectionId).retainedState |> Obj.magic;
   let mutateState = (~state: 'state, ~store: t('state, 'action)) => {
     /* 
      * we cannot and should not directly mutate a reason-react state
@@ -655,8 +666,6 @@ let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhan
   store;
 };
 
-let connections: Js.Dict.t(Extension.connection) = Js.Dict.empty();
-
 let register = (
   ~connectionId: string, 
   ~component: ReasonReact.self('state, 'b, [> `DevToolStateUpdate('state) ]),
@@ -671,42 +680,44 @@ let register = (
 
   let devTools = Extension.connect(~extension=Extension.devToolsEnhancer, ~options=targetOptions);
   let actionCreators = targetOptions|.Extension.actionCreatorsGet;
-  Js.Dict.set(connections, connectionId, devTools);
-  Js.Dict.set(retainedStates, connectionId, component.state |> Obj.magic);
   
-  let meta = {
-    liftedState: None,
-    rewindActionIdx: None,
-    actionCount: 0
+  let connectionInfo = {
+    connection: devTools,
+    retainedState: component.state |> Obj.magic,
+    meta: {
+      liftedState: None,
+      rewindActionIdx: None,
+      actionCount: 0
+    }
   };
 
+  Js.Dict.set(connections, connectionId, connectionInfo);
   ComponentConnectionHandler.handle(
     ~connection=devTools, 
     ~store=Obj.magic({
       component: component |> Obj.magic,
       connectionId: connectionId
     }),
-    ~meta,
+    ~meta=connectionInfo.meta,
     ~actionCreators?);
 };
 
 let unsubscribe = (~connectionId: string) => {
-  let connection = Js.Dict.get(connections, connectionId)
+  let connectionInfo = Js.Dict.get(connections, connectionId)
     |. unwrap(ComponentConnectionHandler.Exceptions.ConnectionNotFound("DevTool connection(id=$connectionId) not found"));
   
   Js.Dict.unsafeDeleteKey(. connections |> Obj.magic, connectionId);
-  Js.Dict.unsafeDeleteKey(. retainedStates |> Obj.magic, connectionId);
-  Extension.unsubscribe(~connection);
-}
+  Extension.unsubscribe(~connection=connectionInfo.connection);
+};
 
 let send = (~connectionId: string, ~action: ([> `DevToolStateUpdate('state) ]), ~state: 'state) => {
-  let connection = Js.Dict.get(connections, connectionId)
+  let connectionInfo = Js.Dict.get(connections, connectionId)
     |. unwrap(ComponentConnectionHandler.Exceptions.ConnectionNotFound("DevTool connection(id=$connectionId) not found"));
   
-  Js.Dict.set(retainedStates, connectionId, state |> Obj.magic);
+  connectionInfo.retainedState = state |> Obj.magic;
   switch(action){
   /* do not pass DevToolsStateUpdate originated from extension */
   | `DevToolStateUpdate(_) => ()
-  | _ => Extension.send(~connection, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(state))
+  | _ => Extension.send(~connection=connectionInfo.connection, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(state))
   };
 };
