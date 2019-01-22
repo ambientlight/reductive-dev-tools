@@ -679,7 +679,7 @@ let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhan
     };
   };
 
-  let store: store('action, 'state) = storeCreator(~reducer, ~preloadedState, ~enhancer=devToolsDispatch, ()) |> Obj.magic;
+  let store: store('action, 'state) = storeCreator(~reducer, ~preloadedState, ~enhancer=devToolsDispatch, ());
   let actionCreators = targetOptions|.Extension.actionCreatorsGet;
   ReductiveConnectionHandler.handle(~connection=devTools, ~store=Obj.magic(store), ~meta, ~actionCreators?);
   store;
@@ -754,8 +754,9 @@ let componentReducerEnhancer: (string,
         let result = reducer(action, state);
         switch(result, action){
         /* do not pass DevToolsStateUpdate originated from extension */
-        | (_, `DevToolStateUpdate(state: 'state)) => ()
-        | (Update(state), _) => {
+        | (_, `DevToolStateUpdate(_)) => ()
+        | (Update(state), _)
+        | (UpdateWithSideEffects(state, _), _) => {
           connectionInfo.meta.actionCount = connectionInfo.meta.actionCount + 1;
           connectionInfo.retainedState = state |> Obj.magic;
           Extension.send(~connection=connectionInfo.connection, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(state))
