@@ -279,13 +279,13 @@ module ConnectionHandler = (Store: StateProvider) => {
       };
       | "COMMIT" => {
         meta.actionCount = 0;
-        Extension.init(~connection=devTools, ~state=Store.getState(store));
+        Extension.init(~connection=devTools, ~state=Serializer.serializeObject(Store.getState(store)));
       };
       | "RESET" => { 
         Store.mutateState(~state=initial, ~store);
         Store.notifyListeners(store);
         meta.actionCount = 0;
-        Extension.init(~connection=devTools, ~state=Store.getState(store));
+        Extension.init(~connection=devTools, ~state=Serializer.serializeObject(Store.getState(store)));
       };
       | "IMPORT_STATE" => {
         let nextLiftedState = payload |. ActionPayload.nextLiftedStateGet |. Belt.Option.getExn;
@@ -332,7 +332,7 @@ module ConnectionHandler = (Store: StateProvider) => {
         Store.mutateState(~state=Serializer.deserializeObject(Obj.magic(parse(stateString))), ~store);
         Store.notifyListeners(store);
         meta.actionCount = 0;
-        Extension.init(~connection=devTools, ~state=Store.getState(store));
+        Extension.init(~connection=devTools, ~state=Serializer.serializeObject(Store.getState(store)));
       };
       | "JUMP_TO_STATE"
       | "JUMP_TO_ACTION" => {
