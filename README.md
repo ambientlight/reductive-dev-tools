@@ -15,8 +15,9 @@ then add `reductive-dev-tools` to your "bs-dependencies" inside `bsconfig.json`
 ## Caveats
 
 1. Add `-bs-g` into `"bsc-flags"` of your **bsconfig.json** to have variant and record field names available inside extension.
-2. Prefer variants with associated data to plain (`SomeAction(unit)` to `SomeAction`) since plain varaints do no carry debug metedata with them (represented as numbers in js)
+2. Prefer variants with constructors to plain (`SomeAction(unit)` to `SomeAction`) since plain varaints do no carry debug metedata with them (represented as numbers in js)
 3. Extension will be locked (newly dispatched actions will be ignored) when you jump back in action history.
+4. Records inside variants do not carry debug metadata in bucklescript yet, if needed you can tag them manually. See [Additional Tagging](https://github.com/ambientlight/reductive-dev-tools#additional-tagging)
 
 ## Supported DevTools Features
 
@@ -123,6 +124,48 @@ ReductiveDevTools.Extension.enhancerOptions(
     ~dispatch=true,
     ()),
   ())
+```
+
+## Additional Tagging
+You can also manually customize serialized objects keys and action names displayed inside extension.
+Two common usecases:
+
+1. Labeling variants with constructors.
+
+	```reason
+	type routerActions = [
+	  | `RouterLocationChanged(list(string), string, string)
+	];
+	
+	open ReductiveDevTools.Utilities;
+	Reductive.Store.dispatch(store, 
+	  `RouterLocationChanged(url.path, url.hash, url.search)
+	    |. labelVariant([|"path", "hash", "search"|]));
+	```
+2. Labeling record keys for records inside variants (since Records inside variants do not carry debug metadata in bucklescript yet).
+
+	```reason
+	type url = {
+	  path: list(string),
+	  hash: string,
+	  search: string,
+	};
+	type routerActions = [
+	  | `RouterLocationChanged(url)
+	];
+	
+	open ReductiveDevTools.Utilities;
+	Reductive.Store.dispatch(store, 
+	  `RouterLocationChanged(url
+	    |. tagRecord([|"path", "hash", "search"|]));
+	```
+	
+And(if really needed) you can override bucklescript debug metadata. Please refer to following definitions in `Utilities`: 
+
+```reason
+let tagVariant: ('a, string) => 'a;
+let tagPolyVar: ('a, string) => 'a;
+let tagRecord: ('a, array(string)) => 'a;
 ```
 
 ## Word Of Caution

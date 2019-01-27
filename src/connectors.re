@@ -1,3 +1,5 @@
+open Utilities;
+
 /**
  * expose reductive store internals
  * reductiveDevTools mutates the store at times
@@ -33,132 +35,6 @@ type applyMiddleware('action, 'origin, 'state) =
   middleware('action, 'state) => storeEnhancer('action, 'origin, 'state);
 
 let exposeStore: Reductive.Store.t('action, 'state) => t('action, 'state) = store => store |> Obj.magic;
-
-/**
- * Substitute for Belt.Option.getExn
- * that raises custom exception if option contains no value
- */
-let unwrap = (opt: option('a), exc: exn) => switch(opt){ 
-  | Some(value) => value
-  | None => raise(exc)
-};
-
-[@bs.val] [@bs.scope "JSON"]
-external parse: string => Js.Json.t = "parse";
-
-/** TODO: Rewrite JsHelpers in reason */
-module JsHelpers {
-
-  let serializeMaybeVariant = [%raw {|
-    function _serialize(obj, isNonRoot) {
-      if(!obj){ return obj }
-
-      /* handle plain variants */
-      if(typeof obj === 'number' && !isNonRoot){ 
-        return {
-          type: 'update',
-          _rawValue: obj
-        }
-      }
-
-      const symbols = Object.getOwnPropertySymbols(obj);
-      const variantNameSymbolIdx = symbols.findIndex(symbol => String(symbol) == 'Symbol(BsVariant)' || String(symbol) == 'Symbol(BsPolyVar)');
-      const recordSymbolIdx = symbols.findIndex(symbol => String(symbol) == 'Symbol(BsRecord)');
-      if(variantNameSymbolIdx > -1){
-        const variantName = obj[symbols[variantNameSymbolIdx]];
-        return {
-          ...Object.keys(obj).reduce((target, key) => ({
-            ...target,
-            [key != 'tag' ? 'arg_'+key : key]: _serialize(obj[key], true)
-          }),{}),
-          type: variantName
-        }
-      } else if(recordSymbolIdx > -1) {
-        const keys = obj[symbols[recordSymbolIdx]];
-        return keys.reduce((object, key, index) => ({
-          ...object,
-          [key]: _serialize(obj[index], true)
-        }), {})
-      /**
-       * handle root discriminated unions when -bs-g flag is not set
-       * smilarly to plain variants
-       */
-      } else if(Array.isArray(obj) && !isNonRoot){
-        return {
-          type: 'update',
-          _rawValue: obj,
-          // pass tag since extension will ignore other keys inside arrays
-          _variant_tag: obj.tag
-        }
-      } else {
-        return obj
-      }
-    }
-  |}];
-
-  let serializeObject = [%raw {|
-    function _serialize(obj) {
-      if(!obj){ return obj }
-      
-      const symbols = Object.getOwnPropertySymbols(obj);
-      const variantNameSymbolIdx = symbols.findIndex(symbol => String(symbol) == 'Symbol(BsVariant)' || String(symbol) == 'Symbol(BsPolyVar)');
-      const recordSymbolIdx = symbols.findIndex(symbol => String(symbol) == 'Symbol(BsRecord)');
-      if(variantNameSymbolIdx > -1){
-        const variantName = obj[symbols[variantNameSymbolIdx]];
-        return {
-          ...Object.keys(obj).reduce((target, key) => ({
-            ...target,
-            [key != 'tag' ? 'arg_'+key : key]: _serialize(obj[key])
-          }),{}),
-          type: variantName
-        }
-      } else if(recordSymbolIdx > -1) {
-        const keys = obj[symbols[recordSymbolIdx]];
-        return keys.reduce((object, key, index) => ({
-          ...object,
-          [key]: _serialize(obj[index])
-        }), {})
-      } else {
-        return obj
-      }
-    }
-  |}];
-  
-  let deserializeObject = [%raw {|
-    function _serialize(obj) {
-      if(!obj){ return obj }
-
-      return Object.keys(obj).reduce((target, key) => [
-        ...target, 
-        (typeof obj[key] === 'object') ? _serialize(obj[key]) : obj[key]
-      ], [])
-    }
-  |}];
-
-  let deserializeVariant = [%raw {|
-    function _serialize(obj) {
-      if(!obj){ return obj }
-
-      // restore plain variants and variants when running without -bs-g flag back
-      if(obj.type == 'update' && obj._rawValue !== undefined){
-        let target = obj._rawValue
-        if(obj._variant_tag !== undefined){
-          target.tag = obj._variant_tag 
-        }
-        return target
-      }
-
-      let target = Object.keys(obj).filter(key => key != 'tag' && key != 'type').reduce((target, key) => [
-        ...target, 
-        (typeof obj[key] === 'object') ? _serialize(obj[key]) : obj[key]
-      ], []);
-      target.tag = obj.tag;
-      return target
-    }
-  |}];
-
-  let serializeWithRecordKeys = (_, value) => serializeObject(value)
-};
 
 /**
  * originally taken from 
@@ -237,12 +113,10 @@ module ConnectionHandler = (Store: StateProvider) => {
   module Exceptions {
     exception PayloadNotFound(string);
     exception StateNotFound(string);
-    exception LiftedStateNotCachedWhileExpected(string);
     exception ConnectionNotFound(string);
-    exception ActionNotCaptureWhileExpected(string);
   };
 
-  let sweepLiftedState = (~devTools: Extension.connection, ~liftedState: LiftedState.t('state, 'action), ~store: Store.t('state, 'action), ~meta: connectionMeta('state, 'action)) => {
+  let _sweepLiftedState = (~devTools: Extension.connection, ~liftedState: LiftedState.t('state, 'action), ~store: Store.t('state, 'action), ~meta: connectionMeta('state, 'action)) => {
     let skippedActions = liftedState |. LiftedState.skippedActionIdsGet;
     let newLiftedState = skippedActions |> Array.fold_left((newLiftedState, _) => { 
       let skipped = newLiftedState |. LiftedState.skippedActionIdsGet |. Array.unsafe_get(0);
@@ -288,7 +162,7 @@ module ConnectionHandler = (Store: StateProvider) => {
         |. Array.get(Array.length(stagedActions) - 1)
         |. ComputedState.stateGet;
 
-      Store.mutateState(~state=JsHelpers.deserializeObject(targetState), ~store);
+      Store.mutateState(~state=Serializer.deserializeObject(targetState), ~store);
       Store.notifyListeners(store);
     };
   };
@@ -318,7 +192,7 @@ module ConnectionHandler = (Store: StateProvider) => {
         |. Array.get(initialIdx^)
         |. ComputedState.stateGet;
 
-      Store.mutateState(~state=JsHelpers.deserializeObject(initialState), ~store);
+      Store.mutateState(~state=Serializer.deserializeObject(initialState), ~store);
       
       /** a bit hacky */
       let preservedActionCount = meta.actionCount;
@@ -335,7 +209,7 @@ module ConnectionHandler = (Store: StateProvider) => {
             |. Belt.Option.getExn
             |. LiftedStateAction.actionGet;
           
-          Store.dispatch(~action=JsHelpers.deserializeVariant(targetAction), ~store); 
+          Store.dispatch(~action=Serializer.deserializeAction(targetAction), ~store); 
 
           /* 
            * we should not directly grab the state associated from passed reducer component
@@ -345,7 +219,7 @@ module ConnectionHandler = (Store: StateProvider) => {
           let newState = if(Store.skipNeedsExplicitEvaluation){
             let connectionInfo = Js.Dict.get(connections, meta.connectionId)
               |. unwrap(Exceptions.ConnectionNotFound("DevTool connection(id=$connectionId) not found"));
-            connectionInfo.retainedState = switch(connectionInfo.retainedReducer(JsHelpers.deserializeVariant(targetAction), connectionInfo.retainedState)){
+            connectionInfo.retainedState = switch(connectionInfo.retainedReducer(Serializer.deserializeAction(targetAction), connectionInfo.retainedState)){
             | Update(newState) => newState
             | _ => connectionInfo.retainedState
             };
@@ -356,7 +230,7 @@ module ConnectionHandler = (Store: StateProvider) => {
           
           ComputedState.stateSet(
             Array.get(computedStates, i),
-            JsHelpers.serializeObject(newState));
+            Serializer.serializeObject(newState));
         });
 
       /** a bit hacky */
@@ -372,7 +246,7 @@ module ConnectionHandler = (Store: StateProvider) => {
         |. Array.get(liftedState |. LiftedState.currentStateIndexGet)
         |. ComputedState.stateGet;
 
-        Store.mutateState(~state=JsHelpers.deserializeObject(targetState), ~store);
+        Store.mutateState(~state=Serializer.deserializeObject(targetState), ~store);
         Store.notifyListeners(store);
       };
 
@@ -418,7 +292,7 @@ module ConnectionHandler = (Store: StateProvider) => {
         let computedStates = nextLiftedState |. LiftedState.computedStatesGet;
         let targetState = Array.get(computedStates, Array.length(computedStates) - 1) |. ComputedState.stateGet;
         
-        Store.mutateState(~state=JsHelpers.deserializeObject(targetState), ~store);
+        Store.mutateState(~state=Serializer.deserializeObject(targetState), ~store);
         Store.notifyListeners(store);
 
         meta.actionCount = (nextLiftedState |. LiftedState.nextActionIdGet) - 1;
@@ -455,7 +329,7 @@ module ConnectionHandler = (Store: StateProvider) => {
           |. Action.stateGet 
           |. unwrap(Exceptions.StateNotFound({j|action($payloadType) doesn't contain state while expected|j}));
 
-        Store.mutateState(~state=JsHelpers.deserializeObject(parse(stateString)), ~store);
+        Store.mutateState(~state=Serializer.deserializeObject(Obj.magic(parse(stateString))), ~store);
         Store.notifyListeners(store);
         meta.actionCount = 0;
         Extension.init(~connection=devTools, ~state=Store.getState(store));
@@ -489,13 +363,13 @@ module ConnectionHandler = (Store: StateProvider) => {
               |. Array.get(nonSkippedIdx^)
               |. ComputedState.stateGet;
 
-            Store.mutateState(~state=JsHelpers.deserializeObject(targetState), ~store);
+            Store.mutateState(~state=Serializer.deserializeObject(targetState), ~store);
           } else {
-            Store.mutateState(~state=JsHelpers.deserializeObject(parse(stateString)), ~store);
+            Store.mutateState(~state=Serializer.deserializeObject(Obj.magic(parse(stateString))), ~store);
           }
         }
         | None => {
-          Store.mutateState(~state=JsHelpers.deserializeObject(parse(stateString)), ~store);
+          Store.mutateState(~state=Serializer.deserializeObject(Obj.magic(parse(stateString))), ~store);
         }};
 
         Store.notifyListeners(store);
@@ -511,7 +385,7 @@ module ConnectionHandler = (Store: StateProvider) => {
             || Belt.Option.isNone(meta.rewindActionIdx)
           ){
             let liftedState = parse(stateString) |> Obj.magic;
-            Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=processToogleAction(~store, ~payload, ~liftedState, ~meta));
+            Extension.send(~connection=devTools, ~action=Js.Null.empty, ~state=processToogleAction(~store=Obj.magic(store), ~payload, ~liftedState, ~meta));
             Store.notifyListeners(store);
           };
       }
@@ -538,14 +412,14 @@ module ConnectionHandler = (Store: StateProvider) => {
     };
   };
 
-  let handle = (~connection: Extension.connection, ~store: Store.t('state, 'action), ~meta: connectionMeta('state, 'action), ~actionCreators: option(Js.Dict.t('actionCreator))=?) => {
+  let handle = (~connection: Extension.connection, ~store: Store.t('state, 'action), ~meta: connectionMeta('state, 'action), ~actionCreators: option(Js.Dict.t('actionCreator))=?, ()) => {
     let initialState = Store.getState(store); 
-    Extension.init(~connection, ~state=JsHelpers.serializeObject(initialState));
+    Extension.init(~connection, ~state=Serializer.serializeObject(initialState));
 
     let _unsubscribe = Extension.subscribe(~connection, ~listener=(action: Action.t('state, 'action)) => {
       switch(action |. Action.type_Get){
       | "DISPATCH" => onMonitorDispatch(~action, ~devTools=connection, ~store, ~initial=initialState, ~meta)
-      | "ACTION" => onRemoteAction(~action, ~store, ~actionCreators?, ()) 
+      | "ACTION" => onRemoteAction(~action=Obj.magic(action), ~store=Obj.magic(store), ~actionCreators?, ()) 
       /* do something on start if needed */
       | "START" => ()
       | _ => ()
@@ -663,7 +537,7 @@ let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhan
       };
 
       meta.actionCount = meta.actionCount + 1;
-      Extension.send(~connection=devTools, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(Reductive.Store.getState(store)));
+      Extension.send(~connection=devTools, ~action=Js.Null.return(Serializer.serializeAction(action)), ~state=Serializer.serializeObject(Reductive.Store.getState(store)));
     };
 
     switch(meta.rewindActionIdx){
@@ -681,7 +555,7 @@ let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhan
 
   let store: store('action, 'state) = storeCreator(~reducer, ~preloadedState, ~enhancer=devToolsDispatch, ());
   let actionCreators = targetOptions|.Extension.actionCreatorsGet;
-  ReductiveConnectionHandler.handle(~connection=devTools, ~store=Obj.magic(store), ~meta, ~actionCreators?);
+  ReductiveConnectionHandler.handle(~connection=devTools, ~store=Obj.magic(store), ~meta, ~actionCreators?, ());
   store;
 };
 
@@ -703,7 +577,7 @@ let register = (
   let connectionInfo = {
     connection: devTools,
     retainedState: component.state |> Obj.magic,
-    retainedReducer: (action, state) => ReasonReact.NoUpdate,
+    retainedReducer: (_action, _state) => ReasonReact.NoUpdate,
     meta: {
       liftedState: None,
       rewindActionIdx: None,
@@ -719,8 +593,9 @@ let register = (
       component: component |> Obj.magic,
       connectionId: connectionId
     }),
-    ~meta=connectionInfo.meta,
-    ~actionCreators?);
+    ~meta=connectionInfo.meta |> Obj.magic,
+    ~actionCreators?, 
+    ());
 };
 
 let unsubscribe = (~connectionId: string) => {
@@ -759,7 +634,7 @@ let componentReducerEnhancer: (string,
         | (UpdateWithSideEffects(state, _), _) => {
           connectionInfo.meta.actionCount = connectionInfo.meta.actionCount + 1;
           connectionInfo.retainedState = state |> Obj.magic;
-          Extension.send(~connection=connectionInfo.connection, ~action=Js.Null.return(JsHelpers.serializeMaybeVariant(action, false)), ~state=JsHelpers.serializeObject(state))
+          Extension.send(~connection=connectionInfo.connection, ~action=Js.Null.return(Serializer.serializeAction(action)), ~state=Serializer.serializeObject(state))
         };
         | _ => ()
         };
@@ -773,7 +648,7 @@ let componentReducerEnhancer: (string,
          * do not propage action if rewindActionIdx is set and smaller then last actionIdx
          * if it's not a devToolStateUpdate action
          */
-        let isDevToolsStateUpdateAction = switch(action){ | `DevToolStateUpdate(state) => true | _ => false };
+        let isDevToolsStateUpdateAction = switch(action){ | `DevToolStateUpdate(_state) => true | _ => false };
         if(rewindIdx >= connectionInfo.meta.actionCount || isDevToolsStateUpdateAction){
           propageAction(state, action)
         } else {
