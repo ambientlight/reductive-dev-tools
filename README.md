@@ -160,7 +160,7 @@ Two common usecases:
 	    |. tagRecord([|"path", "hash", "search"|]));
 	```
 	
-And(if really needed) you can override bucklescript debug metadata. Please refer to following definitions: [utilities.rei](https://github.com/ambientlight/reductive-dev-tools/blob/a530ea6d09d7facad2b70c061703eff52cfa80b4/src/utilities.rei#L63-L67)
+This can also be used to override bucklescript debug metadata(if really needed). Definitions are at: [utilities.rei](https://github.com/ambientlight/reductive-dev-tools/blob/a530ea6d09d7facad2b70c061703eff52cfa80b4/src/utilities.rei#L63-L67)
 
 ## Word Of Caution
 Current implementation depends on internal bucklescript representation of debug metadata and variants in js. Changes to it in future may silently break the extension.
