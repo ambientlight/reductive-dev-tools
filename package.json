@@ -36,6 +36,7 @@
   },
   "peerDependencies": {
     "reductive": "1.x",
-    "reason-react": ">= 0.5.1 < 1"
+    "reason-react": ">= 0.5.1 < 1",
+    "redux-devtools-extension": ">= 2.13.5"
   }
 }
