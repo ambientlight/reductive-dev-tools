@@ -10,7 +10,10 @@ via npm:
 ```bash
 npm install --save-dev reductive-dev-tools
 ```
-then add `reductive-dev-tools` to your "bs-dependencies" inside `bsconfig.json`
+then add `reductive-dev-tools` to your "bs-dependencies" inside `bsconfig.json`.
+
+**Peer depedencies**  
+reason-react, reductive, redux-devtools-extension, redux (redux-devtools-extension's peer dep.) should be also installed.
 
 ## Caveats
 
@@ -72,15 +75,14 @@ let storeCreator = storeEnhancer @@ Reductive.Store.create;
 	
 	```reason
 	/* inside your component */
-    reducer: ReductiveDevTools.Connectors.componentReducerEnhancer(connectionId, ((action, state) => {
+    reducer: ReductiveDevTools.Connectors.componentReducerEnhancer(connectionId) @@ (action, state) => {
       switch (action) {
       | `Click(_) => ReasonReact.Update({...state, count: state.count + 1})
       | `Toggle(_) => ReasonReact.Update({...state, show: !state.show})
       /* handle the actions dispatched from the dev tools monitor */
       | `DevToolStateUpdate(devToolsState) => ReasonReact.Update(devToolsState)
       }
-    })),
-	},
+    },
 	```
 
 3. Unsubscribe when needed with `ReductiveDevTools.Connectors.unsubscribe(~connectionId)`
