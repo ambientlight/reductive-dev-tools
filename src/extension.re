@@ -220,6 +220,9 @@ type enhancerOptions('actionCreator) = {
 };
 
 [@bs.val] [@bs.scope "window"]
+external extension: Js.Undefined.t(extension) = "__REDUX_DEVTOOLS_EXTENSION__";
+
+[@bs.val] [@bs.scope "window"]
 external devToolsExtensionLocked: bool = "__REDUX_DEVTOOLS_EXTENSION_LOCKED__";
 
 [@bs.module "redux-devtools-extension"]

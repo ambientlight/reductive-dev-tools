@@ -519,44 +519,49 @@ let constructOptions: (Extension.enhancerOptions('actionCreator), Extension.enha
 };
 
 let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('action, 'origin, 'state) = (options: Extension.enhancerOptions('actionCreator)) => (storeCreator: storeCreator('action, 'origin, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
-  let targetOptions = constructOptions(options, defaultOptions("ReductiveDevTools"));
-  let devTools = Extension.connect(~extension=Extension.devToolsEnhancer, ~options=targetOptions);
+  if(Extension.extension == Js.undefined){
+    storeCreator(~reducer, ~preloadedState, ~enhancer?, ());
 
-  let meta = {
-    liftedState: None,
-    rewindActionIdx: None,
-    actionCount: 0,
-    connectionId: Belt.Option.getWithDefault(targetOptions|.Extension.nameGet, "ReductiveDevTools")
-  };
+  } else {
+    let targetOptions = constructOptions(options, defaultOptions("ReductiveDevTools"));
+    let devTools = Extension.connect(~extension=Extension.devToolsEnhancer, ~options=targetOptions);
 
-  let devToolsDispatch = (store, next, action) => {
-    let propageAction = (store, next, action) => { 
-      switch (enhancer) {
-        | Some(enhancer) => enhancer(store, next, action)
-        | None => next(action)
+    let meta = {
+      liftedState: None,
+      rewindActionIdx: None,
+      actionCount: 0,
+      connectionId: Belt.Option.getWithDefault(targetOptions|.Extension.nameGet, "ReductiveDevTools")
+    };
+
+    let devToolsDispatch = (store, next, action) => {
+      let propageAction = (store, next, action) => { 
+        switch (enhancer) {
+          | Some(enhancer) => enhancer(store, next, action)
+          | None => next(action)
+        };
+
+        meta.actionCount = meta.actionCount + 1;
+        Extension.send(~connection=devTools, ~action=Js.Null.return(Serializer.serializeAction(action)), ~state=Serializer.serializeObject(Reductive.Store.getState(store)));
       };
 
-      meta.actionCount = meta.actionCount + 1;
-      Extension.send(~connection=devTools, ~action=Js.Null.return(Serializer.serializeAction(action)), ~state=Serializer.serializeObject(Reductive.Store.getState(store)));
-    };
-
-    switch(meta.rewindActionIdx){
-    | Some(rewindIdx) => {
-      /**
-       * do not propage action if rewindActionIdx is set and smaller then last actionIdx
-       */
-      if(rewindIdx >= meta.actionCount){
-        propageAction(store, next, action)
+      switch(meta.rewindActionIdx){
+      | Some(rewindIdx) => {
+        /**
+        * do not propage action if rewindActionIdx is set and smaller then last actionIdx
+        */
+        if(rewindIdx >= meta.actionCount){
+          propageAction(store, next, action)
+        };
+      };
+      | _ => propageAction(store, next, action)
       };
     };
-    | _ => propageAction(store, next, action)
-    };
-  };
 
-  let store: store('action, 'state) = storeCreator(~reducer, ~preloadedState, ~enhancer=devToolsDispatch, ());
-  let actionCreators = targetOptions|.Extension.actionCreatorsGet;
-  ReductiveConnectionHandler.handle(~connection=devTools, ~store=Obj.magic(store), ~meta, ~actionCreators?, ());
-  store;
+    let store: store('action, 'state) = storeCreator(~reducer, ~preloadedState, ~enhancer=devToolsDispatch, ());
+    let actionCreators = targetOptions|.Extension.actionCreatorsGet;
+    ReductiveConnectionHandler.handle(~connection=devTools, ~store=Obj.magic(store), ~meta, ~actionCreators?, ());
+    store;
+  }
 };
 
 let register = (
@@ -565,37 +570,40 @@ let register = (
   ~options: option(Extension.enhancerOptions('actionCreator))=?,
   ()
 ) => {
-
-  let targetOptions = switch(options){
-  | Some(options) => constructOptions(options, defaultOptions(connectionId))
-  | None => defaultOptions(connectionId)
-  };
-
-  let devTools = Extension.connect(~extension=Extension.devToolsEnhancer, ~options=targetOptions);
-  let actionCreators = targetOptions|.Extension.actionCreatorsGet;
+  if(Extension.extension == Js.undefined){
+    ()
+  } else {
+    let targetOptions = switch(options){
+      | Some(options) => constructOptions(options, defaultOptions(connectionId))
+      | None => defaultOptions(connectionId)
+      };
+    
+    let devTools = Extension.connect(~extension=Extension.devToolsEnhancer, ~options=targetOptions);
+    let actionCreators = targetOptions|.Extension.actionCreatorsGet;
+    
+    let connectionInfo = {
+      connection: devTools,
+      retainedState: component.state |> Obj.magic,
+      retainedReducer: (_action, _state) => ReasonReact.NoUpdate,
+      meta: {
+        liftedState: None,
+        rewindActionIdx: None,
+        actionCount: 0,
+        connectionId
+      }
+    };
   
-  let connectionInfo = {
-    connection: devTools,
-    retainedState: component.state |> Obj.magic,
-    retainedReducer: (_action, _state) => ReasonReact.NoUpdate,
-    meta: {
-      liftedState: None,
-      rewindActionIdx: None,
-      actionCount: 0,
-      connectionId
-    }
-  };
-
-  Js.Dict.set(connections, connectionId, connectionInfo);
-  ComponentConnectionHandler.handle(
-    ~connection=devTools, 
-    ~store=Obj.magic({
-      component: component |> Obj.magic,
-      connectionId: connectionId
-    }),
-    ~meta=connectionInfo.meta |> Obj.magic,
-    ~actionCreators?, 
-    ());
+    Js.Dict.set(connections, connectionId, connectionInfo);
+    ComponentConnectionHandler.handle(
+      ~connection=devTools, 
+      ~store=Obj.magic({
+        component: component |> Obj.magic,
+        connectionId: connectionId
+      }),
+      ~meta=connectionInfo.meta |> Obj.magic,
+      ~actionCreators?, 
+      ());
+  }
 };
 
 let unsubscribe = (~connectionId: string) => {
@@ -616,7 +624,10 @@ let componentReducerEnhancer: (string,
   (action, state) =>
     switch(Js.Dict.get(connections, connectionId)){
     | None => {
-      warn("reductive-dev-tools connection not found while expected");
+      if(Extension.extension != Js.undefined){
+        warn("reductive-dev-tools connection not found while expected");
+      };
+      
       reducer(action, state);
     }
     | Some(connectionInfo) => {
