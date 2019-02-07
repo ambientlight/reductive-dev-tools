@@ -417,7 +417,11 @@ let tagVariant: ('a, string) => 'a = (variant, name) => {
   variant
 };
 
-let tagList: list('a) => list('a) = list => tagVariant(list, "::")
+let tagList: list('a) => list('a) = list =>
+  switch(Js.Types.classify(list)){
+  | JSObject(_) => tagVariant(list, "::")
+  | _ => list
+  };
 
 let tagPolyVar: ('a, string) => 'a = (polyVar, name) => {
   Symbol.setValue(polyVar, Symbol.create("BsPolyVar"), name);
