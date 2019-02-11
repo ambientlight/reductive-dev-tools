@@ -29,7 +29,12 @@ module Symbol {
 
 module Object {
   [@bs.val][@bs.scope "Object"]
-  external getOwnPropertySymbols: 'a => array(Symbol.t) = "getOwnPropertySymbols";
+  external _getOwnPropertySymbols: 'a => array(Symbol.t) = "getOwnPropertySymbols";
+
+  let getOwnPropertySymbols = obj => switch(Js.Types.classify(obj)){
+  | JSObject(obj) => _getOwnPropertySymbols(obj)
+  | _ => [||]
+  };
 };
 
 module Serializer {
