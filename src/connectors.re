@@ -50,11 +50,11 @@ module ExtensionCoreHelpers {
         return new Function('return ' + action).call(obj);
       }
 
-      let interpretArg = (arg) => {
+      function interpretArg(arg) {
         return new Function('return ' + arg)();
       };
 
-      let evalArgs = (inArgs, restArgs) => {
+      function evalArgs(inArgs, restArgs) {
         var args = inArgs.map(interpretArg);
         if (!restArgs) return args;
         var rest = interpretArg(restArgs);
