@@ -572,6 +572,8 @@ let register = (
 ) => {
   if(Extension.extension == Js.undefined){
     ()
+  } else if(Js.Dict.get(connections, connectionId) != None){
+    ()
   } else {
     let targetOptions = switch(options){
       | Some(options) => constructOptions(options, defaultOptions(connectionId))
