@@ -1,5 +1,6 @@
 ## reductive-dev-tools
 
+[![VERSION](https://img.shields.io/npm/v/reductive-dev-tools)](https://www.npmjs.com/package/reductive-dev-tools)
 [![LICENSE](https://img.shields.io/github/license/ambientlight/reductive-dev-tools)](https://github.com/ambientlight/reductive-dev-tools/blob/master/LICENSE)
 [![ISSUES](https://img.shields.io/github/issues/ambientlight/reductive-dev-tools)](https://github.com/ambientlight/reductive-dev-tools/issues)
 
