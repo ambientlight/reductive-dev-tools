@@ -21,10 +21,11 @@ reason-react, reductive, redux-devtools-extension, redux (redux-devtools-extensi
 2. Prefer variants with constructors to plain (`SomeAction(unit)` to `SomeAction`) since plain varaints do no carry debug metedata with them (represented as numbers in js)
 3. Extension will be locked (newly dispatched actions will be ignored) when you jump back in action history.
 4. Records inside variants do not carry debug metadata in bucklescript yet, if needed you can tag them manually. See [Additional Tagging](https://github.com/ambientlight/reductive-dev-tools#additional-tagging)
+5. Action names won't be displayed when using extensible variants. [(Extensible variant name becomes "update")](https://github.com/ambientlight/reductive-dev-tools/issues/2)
 
 ## Supported DevTools Features
 
-| feature | reductive | reducer component |
+| feature | reductive | react hooks useReducer |
 |---------|-----------|-------------------|
 | pause   | ✔         | ✔                 |
 | lock    |    [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)       |     [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)              |
@@ -53,39 +54,25 @@ let storeEnhancer =
 let storeCreator = storeEnhancer @@ Reductive.Store.create;
 ```
 
-## Usage with ReactReason reducer component
+## Usage with React Hooks useReducer (jsx3)
 
-1. Create devtools connection with `ReductiveDevTools.Connectors.register()`.
+Replace `React.useReducer` with `ReductiveDevTools.Connectors.useReducer` and pass options with **unique** component id as name.
 
-	```reason
-	/* in your component */
-	didMount: self =>
-	  ReductiveDevTools.Connectors.register(
-	    ~connectionId, 
-	    ~component=self, 
-	    ~options=ReductiveDevTools.Extension.enhancerOptions(
-	      ~actionCreators=Js.Dict.fromList([
-	        ("click", (.) => `Click()),
-	        ("toogle", (.) => `Toggle(()))
-	      ]),
-	      ()), 
-	    ()),
-	```
-2. Wrap your reducer into `componentReducerEnhancer` with passed connectionId and handle actions dispatched from the monitor (`DevToolStateUpdate('state)`) to support rewind, revert, import extension features:
-	
-	```reason
-	/* inside your component */
-    reducer: ReductiveDevTools.Connectors.componentReducerEnhancer(connectionId) @@ (action, state) => {
-      switch (action) {
-      | `Click(_) => ReasonReact.Update({...state, count: state.count + 1})
-      | `Toggle(_) => ReasonReact.Update({...state, show: !state.show})
-      /* handle the actions dispatched from the dev tools monitor */
-      | `DevToolStateUpdate(devToolsState) => ReasonReact.Update(devToolsState)
-      }
-    },
-	```
+```reason
+let (state, send) = ReductiveDevTools.Connectors.useReducer(
+  ReductiveDevTools.Extension.enhancerOptions(~name="MyComponent", ()),
+  reducer,
+  yourInitialState);
+```
 
-3. Unsubscribe when needed with `ReductiveDevTools.Connectors.unsubscribe(~connectionId)`
+## Usage with ReactReason legacy reducer component (jsx2)
+No longer supported. Please install latest from 0.x:
+
+```
+npm install --save-dev reductive-dev-tools@0.2.6
+```
+
+And refer to [old documentation](https://github.com/ambientlight/reductive-dev-tools/blob/dac77af64763d1aaed584a405c8caeb8b8597272/README.md#usage-with-reactreason-reducer-component).
 
 ## Options
 

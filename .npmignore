@@ -1,6 +1,7 @@
 assets/
 
 lib/bs/
+lib/js/
 .merlin
 .bsb.lock
 .tgz
