@@ -1,6 +1,6 @@
 {
   "name": "reductive-dev-tools",
-  "version": "0.2.6",
+  "version": "1.0.0",
   "description": "reductive and reason-react reducer component integration with Redux DevTools",
   "main": "lib/js/src/reductiveDevTools.bs.js",
   "scripts": {
@@ -28,14 +28,14 @@
   },
   "homepage": "https://github.com/ambientlight/reductive-dev-tools#readme",
   "devDependencies": {
-    "bs-platform": "^4.0.18",
+    "bs-platform": "^5.2.1",
     "reason-cli": "^3.3.3-macos-1",
-    "reason-react": "^0.5.3",
-    "reductive": "^1.0.0",
+    "reason-react": "^0.7.0",
+    "reductive": "^2.0.1",
     "redux-devtools-extension": "^2.13.5"
   },
   "peerDependencies": {
-    "reductive": "1.x",
+    "reductive": "2.x",
     "reason-react": ">= 0.5.1 < 1",
     "redux-devtools-extension": ">= 2.13.5"
   }

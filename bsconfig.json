@@ -1,8 +1,5 @@
 {
   "name": "reductive-dev-tools",
-  "reason": {
-    "react-jsx": 2
-  },
   "sources": {
     "dir" : "src",
     "subdirs" : true

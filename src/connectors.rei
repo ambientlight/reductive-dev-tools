@@ -22,16 +22,8 @@ type applyMiddleware('action, 'origin, 'state) =
 
 let reductiveEnhancer: Extension.enhancerOptions('actionCreator) => storeEnhancer('action, 'origin, 'state);
 
-let register: (
-  ~connectionId: string,
-  ~component: ReasonReact.self('state, 'b, [> `DevToolStateUpdate('state) ]),
-  ~options: Extension.enhancerOptions('actionCreator)=?, 
-  unit
-) => unit;
-
-let unsubscribe: (~connectionId: string) => unit;
-
-type componentReducer('state, 'retainedProps, 'action) = ('action, 'state) => ReasonReact.update('state, 'retainedProps, 'action);
-let componentReducerEnhancer: (string,
-  componentReducer('state, 'retainedProps, ([> `DevToolStateUpdate('state) ] as 'a))) =>
-    componentReducer('state, 'retainedProps, 'a);
+let useReducer: (
+  Extension.enhancerOptions('actionCreator),  
+  ('state, ([> `DevToolStateUpdate('state) ] as 'a)) => 'state, 
+  'state
+) => ('state, 'a => unit);

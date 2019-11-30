@@ -75,8 +75,6 @@ module type StateProvider = {
   let mutateState: (~state: 'state, ~store: t('state, 'action)) => unit;
   let notifyListeners: t('state, 'action) => unit;
   let dispatch: (~action: 'action, ~store: t('state, 'action)) => unit;
-
-  let skipNeedsExplicitEvaluation: bool;
 };
 
 type connectionMeta('state, 'action) = {
@@ -93,19 +91,18 @@ type connectionMeta('state, 'action) = {
    */
   mutable rewindActionIdx: option(int),
   mutable actionCount: int,
+  mutable lastAction: option('action),
 
   connectionId: string
 };
 
-type componentReducer('state, 'retainedProps, 'action) = ('action, 'state) => ReasonReact.update('state, 'retainedProps, 'action);
-type componentConnectionInfo('state, 'retainedProps, 'action) = {
-  mutable retainedState: 'state,
-  mutable retainedReducer: componentReducer('state, 'retainedProps, 'action),
+type componentReducer('state, 'action) = ('state, 'action) => 'state;
+type componentConnectionInfo('state, 'action) = {
   connection: Extension.connection,
   meta: connectionMeta('state, 'action)
 };
 
-let connections: Js.Dict.t(componentConnectionInfo('state, 'retainedProps, 'action)) = Js.Dict.empty();
+let connections: Js.Dict.t(componentConnectionInfo('state, 'action)) = Js.Dict.empty();
 
 module ConnectionHandler = (Store: StateProvider) => {
   open Extension.Monitor;
@@ -210,24 +207,7 @@ module ConnectionHandler = (Store: StateProvider) => {
             |. LiftedStateAction.actionGet;
           
           Store.dispatch(~action=Serializer.deserializeAction(targetAction), ~store); 
-
-          /* 
-           * we should not directly grab the state associated from passed reducer component
-           * since it contains the state at the time of register() call
-           * instead, since we have state and reducer retained, use it to evaluate new state
-           */
-          let newState = if(Store.skipNeedsExplicitEvaluation){
-            let connectionInfo = Js.Dict.get(connections, meta.connectionId)
-              |. unwrap(Exceptions.ConnectionNotFound("DevTool connection(id=$connectionId) not found"));
-            connectionInfo.retainedState = switch(connectionInfo.retainedReducer(Serializer.deserializeAction(targetAction), connectionInfo.retainedState)){
-            | Update(newState) => newState
-            | _ => connectionInfo.retainedState
-            };
-            connectionInfo.retainedState
-          } else {
-            Store.getState(store)
-          };
-          
+          let newState = Store.getState(store);
           ComputedState.stateSet(
             Array.get(computedStates, i),
             Serializer.serializeObject(newState));
@@ -430,8 +410,8 @@ module ConnectionHandler = (Store: StateProvider) => {
 };
 
 type componentStore('state, 'action) = {
-  component: ReasonReact.self('state, ReasonReact.noRetainedProps, 'action),
-  connectionId: string
+  dispatch: 'action => unit,
+  mutable retainedState: 'state,
 };
 
 module ComponentStateProvider: StateProvider {
@@ -441,7 +421,7 @@ module ComponentStateProvider: StateProvider {
    * component.state is immutable which corresponds to component state at registration
    * for now, resort to retainedState
    */
-  let getState = (store: t('state, 'action)) => Js.Dict.unsafeGet(connections, store.connectionId).retainedState |> Obj.magic;
+  let getState = (store: t('state, 'action)) => store.retainedState;
   let mutateState = (~state: 'state, ~store: t('state, 'action)) => {
     /* 
      * we cannot and should not directly mutate a reason-react state
@@ -449,13 +429,11 @@ module ComponentStateProvider: StateProvider {
      * which then should be handle on the component's reducer side
      */
 
-    store.component.send(Obj.magic(`DevToolStateUpdate(state)));
+    store.dispatch(Obj.magic(`DevToolStateUpdate(state)));
   };
 
-  let dispatch = (~action: 'action, ~store: t('state, 'action)) => store.component.send(action)
+  let dispatch = (~action: 'action, ~store: t('state, 'action)) => store.dispatch(action)
   let notifyListeners = _ => ();
-
-  let skipNeedsExplicitEvaluation = true;
 };
 
 module ReductiveStateProvider: StateProvider {
@@ -468,8 +446,6 @@ module ReductiveStateProvider: StateProvider {
 
   let dispatch = (~action: 'action, ~store: t('state, 'action)) => Reductive.Store.dispatch(store, action);
   let notifyListeners = (store: t('state, 'action)) => exposeStore(store).listeners |> List.iter(listener => listener());
-
-  let skipNeedsExplicitEvaluation = false;
 };
 
 module ComponentConnectionHandler = ConnectionHandler(ComponentStateProvider);
@@ -530,7 +506,8 @@ let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhan
       liftedState: None,
       rewindActionIdx: None,
       actionCount: 0,
-      connectionId: Belt.Option.getWithDefault(targetOptions|.Extension.nameGet, "ReductiveDevTools")
+      lastAction: None,
+      connectionId: targetOptions |. Extension.nameGet
     };
 
     let devToolsDispatch = (store, next, action) => {
@@ -566,7 +543,7 @@ let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhan
 
 let register = (
   ~connectionId: string, 
-  ~component: ReasonReact.self('state, 'b, [> `DevToolStateUpdate('state) ]),
+  ~component: componentStore('state, 'action),
   ~options: option(Extension.enhancerOptions('actionCreator))=?,
   ()
 ) => {
@@ -585,12 +562,11 @@ let register = (
     
     let connectionInfo = {
       connection: devTools,
-      retainedState: component.state |> Obj.magic,
-      retainedReducer: (_action, _state) => ReasonReact.NoUpdate,
       meta: {
         liftedState: None,
         rewindActionIdx: None,
         actionCount: 0,
+        lastAction: None,
         connectionId
       }
     };
@@ -598,10 +574,7 @@ let register = (
     Js.Dict.set(connections, connectionId, connectionInfo);
     ComponentConnectionHandler.handle(
       ~connection=devTools, 
-      ~store=Obj.magic({
-        component: component |> Obj.magic,
-        connectionId: connectionId
-      }),
+      ~store=component |> Obj.magic,
       ~meta=connectionInfo.meta |> Obj.magic,
       ~actionCreators?, 
       ());
@@ -619,42 +592,23 @@ let unsubscribe = (~connectionId: string) => {
 [@bs.val][@bs.scope "console"] 
 external warn: 'a => unit = "warn";
 
-let componentReducerEnhancer: (string,
-  componentReducer('state, 'retainedProps, ([> `DevToolStateUpdate('state) ] as 'a))) =>
-    componentReducer('state, 'retainedProps, 'a) = (connectionId, reducer) => {
+[@bs.val][@bs.scope "console"]
+external trace: 'a => unit = "trace";
+
+let rewindActionPropagateBlock: (string,
+  componentReducer('state, 'a)) =>
+    componentReducer('state, 'a) = (connectionId, reducer) => {
   
-  (action, state) =>
+  (state, action) =>
     switch(Js.Dict.get(connections, connectionId)){
     | None => {
       if(Extension.extension != Js.undefined){
         warn("reductive-dev-tools connection not found while expected");
       };
       
-      reducer(action, state);
+      reducer(state, action);
     }
     | Some(connectionInfo) => {
-      /** 
-       * side effect: retain reducer which we can use to evaluate new states during skipping 
-       */
-      connectionInfo.retainedReducer = reducer |> Obj.magic;
-
-      let propageAction = (state, action) => {
-        let result = reducer(action, state);
-        switch(result, action){
-        /* do not pass DevToolsStateUpdate originated from extension */
-        | (_, `DevToolStateUpdate(_)) => ()
-        | (Update(state), _)
-        | (UpdateWithSideEffects(state, _), _) => {
-          connectionInfo.meta.actionCount = connectionInfo.meta.actionCount + 1;
-          connectionInfo.retainedState = state |> Obj.magic;
-          Extension.send(~connection=connectionInfo.connection, ~action=Js.Null.return(Serializer.serializeAction(action)), ~state=Serializer.serializeObject(state))
-        };
-        | _ => ()
-        };
-  
-        result
-      };
-  
       switch(connectionInfo.meta.rewindActionIdx){
       | Some(rewindIdx) => {
         /**
@@ -663,12 +617,84 @@ let componentReducerEnhancer: (string,
          */
         let isDevToolsStateUpdateAction = switch(action){ | `DevToolStateUpdate(_state) => true | _ => false };
         if(rewindIdx >= connectionInfo.meta.actionCount || isDevToolsStateUpdateAction){
-          propageAction(state, action)
+          reducer(state, action)
         } else {
-          ReasonReact.NoUpdate
+          state
         }
       };
-      | _ => propageAction(state, action)
+      | _ => reducer(state, action)
       };
     }}
+};
+
+let captureAction: (string,
+  componentReducer('state, ([> `DevToolStateUpdate('state) ] as 'a))) =>
+    componentReducer('state, 'a) = (connectionId, reducer) => {
+  
+  (state, action) =>
+    switch(Js.Dict.get(connections, connectionId)){
+    | None => {
+      if(Extension.extension != Js.undefined){
+        warn("reductive-dev-tools connection not found while expected");
+      };
+      
+      reducer(state, action);
+    }
+    | Some(connectionInfo) => {
+      connectionInfo.meta.lastAction = Some(Obj.magic(action));
+      reducer(state, action);
+    }}
+};
+
+let useReducer: (
+  Extension.enhancerOptions('actionCreator),
+  ('state, ([> `DevToolStateUpdate('state_) ] as 'a)) => 'state, 
+  'state
+) => ('state, 'a => unit) = (connectionOptions, reducer, initial) => {
+  let connectionId = connectionOptions |. Extension.nameGet;
+  let targetReducer = React.useMemo1(
+    () => rewindActionPropagateBlock(connectionId) @@ captureAction(connectionId) @@ reducer, [|reducer|]);
+  let (state, dispatch) = React.useReducer(targetReducer, initial);
+  let componentStore = React.useMemo0(() => {
+    retainedState: initial,
+    dispatch
+  });
+
+  React.useEffect0(() => { 
+    let retained = ref(initial);
+    register(
+      ~connectionId, 
+      ~component=componentStore, 
+      ());
+    Some(() => unsubscribe(~connectionId)) 
+  });
+
+  /**
+    we have to go this way 
+    rather then having a reducer wrapping in higher-order reducer(like for reductive case above) 
+    that will relay to the extension
+    since we cannot ensure that clients will define the reducer outside of component scope,
+    in the opossite case internal reacts updateReducer will be called on each render
+    which will result in actions dispatched twice to reducer (https://github.com/facebook/react/issues/16295)
+   */
+  componentStore.retainedState = state;
+  switch(Js.Dict.get(connections, connectionId)){
+  | None => if(Extension.extension != Js.undefined){
+    warn("reductive-dev-tools connection not found while expected");
+  };
+  | Some(connectionInfo) => switch(connectionInfo.meta.lastAction){
+    /* do not pass DevToolsStateUpdate originated from extension */
+    | Some(lastAction) => {
+      switch(lastAction){
+      | `DevToolStateUpdate(_) => ()
+      | _ => {
+        connectionInfo.meta.actionCount = connectionInfo.meta.actionCount + 1;
+        Extension.send(~connection=connectionInfo.connection, ~action=Js.Null.return(Serializer.serializeAction(lastAction)), ~state=Serializer.serializeObject(state))
+      }}
+    };
+    | None => ()
+    };
+  };
+
+  (state, dispatch)
 };

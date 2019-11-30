@@ -86,9 +86,8 @@ type connection = Js.t({.});
 type enhancerOptions('actionCreator) = {
   /**
    * the instance name to be showed on the monitor page. Default value is `document.title`.
-   * If not specified and there's no document title, it will consist of `tabId` and `instanceId`.
    */
-  [@bs.optional] name: string,
+  name: string,
   
   /**
    * action creators functions to be available in the Dispatcher.
