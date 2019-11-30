@@ -1,5 +1,8 @@
 ## reductive-dev-tools
 
+[![LICENSE](https://img.shields.io/github/license/ambientlight/reductive-dev-tools)](https://github.com/ambientlight/reductive-dev-tools/blob/master/LICENSE)
+[![ISSUES](https://img.shields.io/github/issues/ambientlight/reductive-dev-tools)](https://github.com/ambientlight/reductive-dev-tools/issues)
+
 [reductive](https://github.com/reasonml-community/reductive) and [reason-react](https://github.com/reasonml/reason-react) reducer component integration with [redux-devtools-extension](https://github.com/zalmoxisus/redux-devtools-extension)
 
 ![image](assets/demo.gif)
