@@ -677,24 +677,28 @@ let useReducer: (
     in the opossite case internal reacts updateReducer will be called on each render
     which will result in actions dispatched twice to reducer (https://github.com/facebook/react/issues/16295)
    */
-  componentStore.retainedState = state;
-  switch(Js.Dict.get(connections, connectionId)){
-  | None => if(Extension.extension != Js.undefined){
-    warn("reductive-dev-tools connection not found while expected");
-  };
-  | Some(connectionInfo) => switch(connectionInfo.meta.lastAction){
-    /* do not pass DevToolsStateUpdate originated from extension */
-    | Some(lastAction) => {
-      switch(lastAction){
-      | `DevToolStateUpdate(_) => ()
-      | _ => {
-        connectionInfo.meta.actionCount = connectionInfo.meta.actionCount + 1;
-        Extension.send(~connection=connectionInfo.connection, ~action=Js.Null.return(Serializer.serializeAction(lastAction)), ~state=Serializer.serializeObject(state))
-      }}
+  React.useEffect1(() => {
+    componentStore.retainedState = state;
+    switch(Js.Dict.get(connections, connectionId)){
+    | None => if(Extension.extension != Js.undefined){
+      warn("reductive-dev-tools connection not found while expected");
     };
-    | None => ()
+    | Some(connectionInfo) => switch(connectionInfo.meta.lastAction){
+      /* do not pass DevToolsStateUpdate originated from extension */
+      | Some(lastAction) => {
+        switch(lastAction){
+        | `DevToolStateUpdate(_) => ()
+        | _ => {
+          connectionInfo.meta.actionCount = connectionInfo.meta.actionCount + 1;
+          Extension.send(~connection=connectionInfo.connection, ~action=Js.Null.return(Serializer.serializeAction(lastAction)), ~state=Serializer.serializeObject(state))
+        }}
+      };
+      | None => ()
+      };
     };
-  };
+
+    None
+  }, [|state|]);
 
   (state, dispatch)
 };
