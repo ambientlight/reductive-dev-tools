@@ -69,7 +69,7 @@ let (state, send) = ReductiveDevTools.Connectors.useReducer(
   yourInitialState);
 ```
 
-handle DevToolStateUpdate('state)) to support rewind, revert, import dispatched from [redux-devtools-extension](https://github.com/zalmoxisus/redux-devtools-extension) monitor
+handle `DevToolStateUpdate('state)` to support rewind, revert, import dispatched from [redux-devtools-extension](https://github.com/zalmoxisus/redux-devtools-extension) monitor
 
 ```reason
 let reducer = (state, action) =>
