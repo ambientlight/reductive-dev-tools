@@ -69,6 +69,16 @@ let (state, send) = ReductiveDevTools.Connectors.useReducer(
   yourInitialState);
 ```
 
+handle DevToolStateUpdate('state)) to support rewind, revert, import dispatched from [redux-devtools-extension](https://github.com/zalmoxisus/redux-devtools-extension) monitor
+
+```reason
+let reducer = (state, action) =>
+  switch (action) {
+  | `DevToolStateUpdate(devToolsState) => devToolsState
+  //....
+};
+```
+
 ## Usage with ReactReason legacy reducer component (jsx2)
 No longer supported. Please install latest from 0.x:
 
