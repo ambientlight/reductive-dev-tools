@@ -502,8 +502,8 @@ let enhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('acti
 
     every action dispatched from reductive will increment
     while every digested action coming from reduxjs store subscription will decrement back
-    negative number in below reduxjs subscribtion will indicate action originate from monitor 
-    so dispatch DevToolStateUpdate action will monitor state
+    negative number in below reduxjs subscription will indicate actions originate from monitor 
+    so DevToolStateUpdate action will be dispatched onr reductive store so it can update accordingly
     PLEASE NOTE, reductive reducers need to handle this action themselves
    */
   let _outstandingActionsCount = ref(0);
