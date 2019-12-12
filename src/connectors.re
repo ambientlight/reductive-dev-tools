@@ -494,6 +494,68 @@ let constructOptions: (Extension.enhancerOptions('actionCreator), Extension.enha
   }) |> Obj.magic
 };
 
+let enhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('action, 'origin, 'state) = (options: Extension.enhancerOptions('actionCreator)) => (storeCreator: storeCreator('action, 'origin, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
+  let _bridgedReduxJsStore = ref(None);
+  /**
+    used to track whether actions have been dispatched
+    from reductive store or from monitor
+
+    every action dispatched from reductive will increment
+    while every digested action coming from reduxjs store subscription will decrement back
+    negative number in below reduxjs subscribtion will indicate action originate from monitor 
+    so dispatch DevToolStateUpdate action will monitor state
+    PLEASE NOTE, reductive reducers need to handle this action themselves
+   */
+  let _outstandingActionsCount = ref(0);
+
+  let reduxJsBridgeMiddleware = (store) => {
+    let reduxJsStore = switch(_bridgedReduxJsStore^){
+    | Some(reduxJsStore) => reduxJsStore
+    | None => {
+      let bridgedStore = Extension.createDummyReduxJsStore(options)(
+        // reduxjs reducer bridges reductive updated state 
+        (state, action) => store |. Reductive.Store.getState |> Obj.magic,
+        store |. Reductive.Store.getState |> Obj.magic,
+        ()
+      );
+
+      bridgedStore.subscribe(() => {
+        _outstandingActionsCount := (_outstandingActionsCount^ - 1);        
+        if(_outstandingActionsCount^ < 0){
+          let devToolsUpdateAction = {"type": "DevToolStateUpdate", "state": bridgedStore.getState() };
+          store |. Reductive.Store.dispatch(devToolsUpdateAction |> Obj.magic);
+        };
+        ()
+      });
+      
+      _bridgedReduxJsStore := Some(bridgedStore);
+      bridgedStore
+    }};
+    
+    (next, action) => {
+      next(action)
+
+      _outstandingActionsCount := (_outstandingActionsCount^ + 1);
+      if(_outstandingActionsCount^ > 0){
+        // relay the actions to the reduxjs store
+        reduxJsStore.dispatch(action);
+      }
+    }
+  };
+
+  storeCreator(
+    ~reducer, 
+    ~preloadedState, 
+    ~enhancer=?(Extension.extension == Js.undefined 
+      ? enhancer
+      : Some(enhancer 
+        |. Belt.Option.mapWithDefault(
+          reduxJsBridgeMiddleware,
+          middleware => (store, next) => reduxJsBridgeMiddleware(store) @@ middleware(store) @@ next
+        ))),
+    ());
+}
+
 let reductiveEnhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('action, 'origin, 'state) = (options: Extension.enhancerOptions('actionCreator)) => (storeCreator: storeCreator('action, 'origin, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
   if(Extension.extension == Js.undefined){
     storeCreator(~reducer, ~preloadedState, ~enhancer?, ());

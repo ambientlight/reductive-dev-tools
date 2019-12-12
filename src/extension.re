@@ -227,6 +227,76 @@ external devToolsExtensionLocked: bool = "__REDUX_DEVTOOLS_EXTENSION_LOCKED__";
 [@bs.module "redux-devtools-extension"]
 external _devToolsEnhancer: extension = "devToolsEnhancer";
 
+type composer('action, 'state) = Types.reduxJsStoreEnhancer('action, 'state) => Types.reduxJsStoreCreator('action, 'state) => Types.reduxJsStoreCreator('action, 'state);
+
+[@bs.module "redux-devtools-extension"]
+external _composeWithDevTools: (. enhancerOptions('actionCreator)) => composer('action, 'state) = "composeWithDevTools";
+
+let createDummyReduxJsStore = options => { 
+  let composer = _composeWithDevTools(. options);
+
+  /**
+    const store = createStore(reducer, preloadedState, composeEnhancers(
+      applyMiddleware(...middleware)
+    ));
+
+    the next thing is that applyMiddleware passed inside composedEnhancers
+    just assume no other middleware to apply
+   */
+  let devToolsStoreEnhancer = composer(devToolsEnhancer => devToolsEnhancer);
+  let dummyReduxJsStore: ('a, 'b) => Types.reduxJsStore('state, 'action) = (reducer, initial) => {
+    let listeners: array(unit => unit) = [||];
+    let state = ref(initial);
+
+    let dispatch = (action) => {
+      // Js.log("reduxjs-dispatch");
+      // Js.log(action);
+      let newState = reducer(state^, action);
+      state := newState;
+      // Js.log(newState);
+      
+      listeners
+      |. Belt.Array.forEach(listener => listener());
+
+      state^
+    };
+
+    /**
+      if we don't mimic reduxjs's initial action devtools seem to lag the resulting state by 1
+      since redux-dev-tools seems to fake the initial @@redux/INIT action 
+      (we will see it in the monitor even if the thing below is not dispatched)
+     */ 
+    dispatch({ "type": "@@redux/INIT"} |> Obj.magic);
+
+    {
+      dispatch,
+      subscribe: listener => {
+        Js.Array.push(listener, listeners) |> ignore;
+        ()
+      },
+      getState: () => {
+        // represents monitor's liftedState
+        state^
+      },
+      replaceReducer: _reducer => {
+        // noop
+        let self = [%bs.raw "this"];
+        self
+      }
+    }
+  };
+
+  let rec createStore = (reducer, initial, enhancer) => { 
+    switch(enhancer |> Js.toOption){
+    | Some(enhancer) => 
+      (enhancer @@ (createStore |> Obj.magic))(reducer, initial, ())
+    | None => dummyReduxJsStore(reducer, initial)
+    }
+  };
+
+  (reducer, initial, _enhancer) => createStore(reducer, initial, devToolsStoreEnhancer |> Obj.magic)
+};
+
 let devToolsEnhancer = _devToolsEnhancer;
 
 [@bs.send] external _connect: (~extension: extension, ~options: enhancerOptions('actionCreator)) => connection = "connect";
