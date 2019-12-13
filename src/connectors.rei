@@ -22,7 +22,12 @@ type applyMiddleware('action, 'origin, 'state) =
 
 let reductiveEnhancer: Extension.enhancerOptions('actionCreator) => storeEnhancer('action, 'origin, 'state);
 
-let nextEnhancer: (~options: Extension.enhancerOptions('actionCreator), ~devToolsUpdateActionCreator: ('state) => 'action) => Types.storeEnhancer('action, 'state);
+let nextEnhancer: (
+  ~options: Extension.enhancerOptions('actionCreator), 
+  ~devToolsUpdateActionCreator: ('state) => 'action, 
+  ~actionSerializer: Types.customSerializer('action, 'serializedAction)=?,
+  ~stateSerializer: Types.customSerializer('state, 'serializedState)=?, 
+  unit) => Types.storeEnhancer('action, 'state);
 
 let useReducer: (
   Extension.enhancerOptions('actionCreator),  

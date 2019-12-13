@@ -33,3 +33,7 @@ type reduxJsStoreCreator('action, 'state) = (
 
 type reduxJsStoreEnhancer('action, 'state) = reduxJsStoreCreator('action, 'state) => reduxJsStoreCreator('action, 'state);
 
+type customSerializer('a, 'b) = {
+  serialize: 'a => 'b,
+  deserialize: 'b => 'a
+};

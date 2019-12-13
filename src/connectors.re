@@ -494,7 +494,13 @@ let constructOptions: (Extension.enhancerOptions('actionCreator), Extension.enha
   }) |> Obj.magic
 };
 
-let nextEnhancer: (~options: Extension.enhancerOptions('actionCreator), ~devToolsUpdateActionCreator: ('state) => 'action) => Types.storeEnhancer('action, 'state) = (~options: Extension.enhancerOptions('actionCreator), ~devToolsUpdateActionCreator) => (storeCreator: Types.storeCreator('action, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
+let nextEnhancer: (
+  ~options: Extension.enhancerOptions('actionCreator), 
+  ~devToolsUpdateActionCreator: ('state) => 'action,
+  ~actionSerializer: Types.customSerializer('action, 'serializedAction)=?,
+  ~stateSerializer: Types.customSerializer('state, 'serializedState)=?,
+  unit
+) => Types.storeEnhancer('action, 'state) = (~options, ~devToolsUpdateActionCreator, ~actionSerializer=?, ~stateSerializer=?, ()) => (storeCreator: Types.storeCreator('action, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
   let _bridgedReduxJsStore = ref(None);
   /**
     used to track whether actions have been dispatched
@@ -515,6 +521,16 @@ let nextEnhancer: (~options: Extension.enhancerOptions('actionCreator), ~devTool
    */
   let _didToggle = ref(false);
   let _didInit = ref(false);
+
+  let actionSerializer = actionSerializer |> Obj.magic |. Belt.Option.getWithDefault(Types.({
+    serialize: Utilities.Serializer.serializeAction,
+    deserialize: Utilities.Serializer.deserializeAction
+  }));
+
+  let stateSerializer = stateSerializer |> Obj.magic |. Belt.Option.getWithDefault(Types.({
+    serialize: Utilities.Serializer.serializeObject,
+    deserialize: Utilities.Serializer.deserializeObject
+  }));
 
   let reduxJsBridgeMiddleware = (store) => {
     let reduxJsStore = switch(_bridgedReduxJsStore^){
@@ -537,7 +553,7 @@ let nextEnhancer: (~options: Extension.enhancerOptions('actionCreator), ~devTool
 
               if(_didInit^){
                 _outstandingActionsCount := (_outstandingActionsCount^ - 1);
-                store |. Reductive.Store.dispatch(devToolsUpdateActionCreator(state |> Obj.magic));
+                store |. Reductive.Store.dispatch(devToolsUpdateActionCreator(state |> Obj.magic |> stateSerializer.deserialize |> Obj.magic));
               } else {
                 _didInit := true
               }
@@ -545,20 +561,27 @@ let nextEnhancer: (~options: Extension.enhancerOptions('actionCreator), ~devTool
 
             if(action##"type" != "@@INIT"){
               _outstandingActionsCount := (_outstandingActionsCount^ - 1);
-              store |. Reductive.Store.dispatch(Serializer.deserializeAction(action |> Obj.magic));
+              store |. Reductive.Store.dispatch(actionSerializer.deserialize(action |> Obj.magic));
             }
           };
 
-          store |. Reductive.Store.getState |> Obj.magic
+          store 
+          |. Reductive.Store.getState 
+          |> stateSerializer.serialize
+          |> Obj.magic
         },
-        store |. Reductive.Store.getState |> Obj.magic,
+
+        store 
+        |. Reductive.Store.getState 
+        |> stateSerializer.serialize
+        |> Obj.magic,
         ()
       );
 
       bridgedStore.subscribe(() => {
         _outstandingActionsCount := (_outstandingActionsCount^ - 1);        
         if(_outstandingActionsCount^ < 0){
-          store |. Reductive.Store.dispatch(devToolsUpdateActionCreator(bridgedStore.getState() |> Obj.magic));
+          store |. Reductive.Store.dispatch(devToolsUpdateActionCreator(bridgedStore.getState() |> Obj.magic |> stateSerializer.deserialize |> Obj.magic));
         };
         ()
       });
@@ -578,7 +601,7 @@ let nextEnhancer: (~options: Extension.enhancerOptions('actionCreator), ~devTool
         _outstandingActionsCount := (_outstandingActionsCount^ + 1);
         if(_outstandingActionsCount^ > 0){
           // relay the actions to the reduxjs store
-          let jsAction = Serializer.serializeAction(action);
+          let jsAction = actionSerializer.serialize(action);
           reduxJsStore.dispatch(jsAction |> Obj.magic);
         }
       }
