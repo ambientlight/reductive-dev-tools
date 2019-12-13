@@ -494,7 +494,7 @@ let constructOptions: (Extension.enhancerOptions('actionCreator), Extension.enha
   }) |> Obj.magic
 };
 
-let enhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('action, 'origin, 'state) = (options: Extension.enhancerOptions('actionCreator)) => (storeCreator: storeCreator('action, 'origin, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
+let nextEnhancer: (~options: Extension.enhancerOptions('actionCreator), ~devToolsUpdateActionCreator: ('state) => 'action) => Types.storeEnhancer('action, 'state) = (~options: Extension.enhancerOptions('actionCreator), ~devToolsUpdateActionCreator) => (storeCreator: Types.storeCreator('action, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
   let _bridgedReduxJsStore = ref(None);
   /**
     used to track whether actions have been dispatched
@@ -502,19 +502,55 @@ let enhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('acti
 
     every action dispatched from reductive will increment
     while every digested action coming from reduxjs store subscription will decrement back
-    negative number in below reduxjs subscription will indicate actions originate from monitor 
-    so DevToolStateUpdate action will be dispatched onr reductive store so it can update accordingly
+    negative number in below reduxjs subscription will indicate action originate from monitor 
+    so dispatch DevToolStateUpdate action to let clients sync reductive state with monitor's
     PLEASE NOTE, reductive reducers need to handle this action themselves
    */
   let _outstandingActionsCount = ref(0);
+  let _extensionLocked = ref(false);
+  /**
+    toggle recalculates: reduces over all states after the one that is toggled
+    if it would be accompanied with @@INIT action we won't need to track if toggle was triggered
+    as we need to resync the state before dispatching to reductive store all subsequent actions after toggled
+   */
+  let _didToggle = ref(false);
+  let _didInit = ref(false);
 
   let reduxJsBridgeMiddleware = (store) => {
     let reduxJsStore = switch(_bridgedReduxJsStore^){
     | Some(reduxJsStore) => reduxJsStore
     | None => {
-      let bridgedStore = Extension.createDummyReduxJsStore(options)(
+      let bridgedStore = Extension.createDummyReduxJsStore(
+        options, 
+        (locked) => { _extensionLocked := locked },
+        () => { _didToggle := true})(
+
         // reduxjs reducer bridges reductive updated state 
-        (state, action) => store |. Reductive.Store.getState |> Obj.magic,
+        (state, action) => { 
+          if(_outstandingActionsCount^ == 0){
+            /**
+              synch reductive state during @@INIT dispatched from monitor (RESET/IMPORT/REVERT) + TOGGLE_ACTION
+              no need to resynch @@INIT action on initial mount 
+             */
+            if(action##"type" == "@@INIT" || _didToggle^){
+              _didToggle := false
+
+              if(_didInit^){
+                _outstandingActionsCount := (_outstandingActionsCount^ - 1);
+                store |. Reductive.Store.dispatch(devToolsUpdateActionCreator(state |> Obj.magic));
+              } else {
+                _didInit := true
+              }
+            };
+
+            if(action##"type" != "@@INIT"){
+              _outstandingActionsCount := (_outstandingActionsCount^ - 1);
+              store |. Reductive.Store.dispatch(Serializer.deserializeAction(action |> Obj.magic));
+            }
+          };
+
+          store |. Reductive.Store.getState |> Obj.magic
+        },
         store |. Reductive.Store.getState |> Obj.magic,
         ()
       );
@@ -522,8 +558,7 @@ let enhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('acti
       bridgedStore.subscribe(() => {
         _outstandingActionsCount := (_outstandingActionsCount^ - 1);        
         if(_outstandingActionsCount^ < 0){
-          let devToolsUpdateAction = {"type": "DevToolStateUpdate", "state": bridgedStore.getState() };
-          store |. Reductive.Store.dispatch(devToolsUpdateAction |> Obj.magic);
+          store |. Reductive.Store.dispatch(devToolsUpdateActionCreator(bridgedStore.getState() |> Obj.magic));
         };
         ()
       });
@@ -533,12 +568,19 @@ let enhancer: (Extension.enhancerOptions('actionCreator)) => storeEnhancer('acti
     }};
     
     (next, action) => {
-      next(action)
-
-      _outstandingActionsCount := (_outstandingActionsCount^ + 1);
-      if(_outstandingActionsCount^ > 0){
-        // relay the actions to the reduxjs store
-        reduxJsStore.dispatch(action);
+      // discard actions from reductive when monitor is locked
+      // still allow actions from monitor though for time-travel
+      if(_extensionLocked^ && _outstandingActionsCount^ >= 0){
+        ()
+      } else {
+        next(action)
+        
+        _outstandingActionsCount := (_outstandingActionsCount^ + 1);
+        if(_outstandingActionsCount^ > 0){
+          // relay the actions to the reduxjs store
+          let jsAction = Serializer.serializeAction(action);
+          reduxJsStore.dispatch(jsAction |> Obj.magic);
+        }
       }
     }
   };

@@ -22,7 +22,7 @@ type applyMiddleware('action, 'origin, 'state) =
 
 let reductiveEnhancer: Extension.enhancerOptions('actionCreator) => storeEnhancer('action, 'origin, 'state);
 
-let enhancer: Extension.enhancerOptions('actionCreator) => storeEnhancer('action, 'origin, 'state);
+let nextEnhancer: (~options: Extension.enhancerOptions('actionCreator), ~devToolsUpdateActionCreator: ('state) => 'action) => Types.storeEnhancer('action, 'state);
 
 let useReducer: (
   Extension.enhancerOptions('actionCreator),  

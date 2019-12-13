@@ -232,7 +232,7 @@ type composer('action, 'state) = Types.reduxJsStoreEnhancer('action, 'state) => 
 [@bs.module "redux-devtools-extension"]
 external _composeWithDevTools: (. enhancerOptions('actionCreator)) => composer('action, 'state) = "composeWithDevTools";
 
-let createDummyReduxJsStore = options => { 
+let createDummyReduxJsStore = (options, lockCallback: bool => unit, didToggle: unit => unit) => { 
   let composer = _composeWithDevTools(. options);
 
   /**
@@ -249,11 +249,16 @@ let createDummyReduxJsStore = options => {
     let state = ref(initial);
 
     let dispatch = (action) => {
-      // Js.log("reduxjs-dispatch");
-      // Js.log(action);
+      if(action##"type" == "LOCK_CHANGES"){
+        lockCallback(action##status)
+      } else if(action##"type" == "TOGGLE_ACTION"){
+        didToggle();
+      };
+
+      Js.log(action);
+      
       let newState = reducer(state^, action);
       state := newState;
-      // Js.log(newState);
       
       listeners
       |. Belt.Array.forEach(listener => listener());
@@ -272,10 +277,10 @@ let createDummyReduxJsStore = options => {
       dispatch,
       subscribe: listener => {
         Js.Array.push(listener, listeners) |> ignore;
-        ()
       },
       getState: () => {
         // represents monitor's liftedState
+        // Js.log(state^);
         state^
       },
       replaceReducer: _reducer => {
@@ -286,9 +291,11 @@ let createDummyReduxJsStore = options => {
     }
   };
 
+  // let createStore: Types.reduxJsStoreCreator('action, 'state) = [%bs.raw "require('redux').createStore"];
   let rec createStore = (reducer, initial, enhancer) => { 
     switch(enhancer |> Js.toOption){
     | Some(enhancer) => 
+      // FIXME: initial value doesn't seem to be propagated through (our reducer recieves undefined)
       (enhancer @@ (createStore |> Obj.magic))(reducer, initial, ())
     | None => dummyReduxJsStore(reducer, initial)
     }
