@@ -12,6 +12,16 @@ type t('action, 'state) = {
     option((t('action, 'state), 'action => unit, 'action) => unit),
 };
 
+type partialStore('action, 'state) = {
+  getState: unit => 'state,
+  dispatch: 'action => unit
+};
+
+type customSerializer('a, 'b) = {
+  serialize: 'a => 'b,
+  deserialize: 'b => 'a
+};
+
 let createDummyReduxJsStore = (options, lockCallback: bool => unit, didToggle: unit => unit) => { 
   let composer = Extension.composeWithDevTools(. options);
 
@@ -24,7 +34,7 @@ let createDummyReduxJsStore = (options, lockCallback: bool => unit, didToggle: u
     just assume no other middleware to apply
    */
   let devToolsStoreEnhancer = composer(devToolsEnhancer => devToolsEnhancer);
-  let dummyReduxJsStore: ('a, 'b) => Types.reduxJsStore('state, 'action) = (reducer, initial) => {
+  let dummyReduxJsStore: ('a, 'b) => ReduxJsStore.t('state, 'action) = (reducer, initial) => {
     let listeners: array(unit => unit) = [||];
     let state = ref(initial);
 
@@ -51,7 +61,7 @@ let createDummyReduxJsStore = (options, lockCallback: bool => unit, didToggle: u
      */ 
     dispatch({ "type": "@@redux/INIT"} |> Obj.magic);
 
-    Types.reduxJsStore(
+    ReduxJsStore.t(
       ~dispatch,
       ~subscribe=listener => {
         Js.Array.push(listener, listeners) |> ignore;
@@ -80,8 +90,8 @@ let createDummyReduxJsStore = (options, lockCallback: bool => unit, didToggle: u
 let createReduxJsBridgeMiddleware = (
   ~options: Extension.enhancerOptions('actionCreator), 
   ~devToolsUpdateActionCreator: ('state) => 'action,
-  ~actionSerializer:option(Types.customSerializer('action, 'serializedAction))=?,
-  ~stateSerializer:option(Types.customSerializer('state, 'serializedState))=?,
+  ~actionSerializer:option(customSerializer('action, 'serializedAction))=?,
+  ~stateSerializer:option(customSerializer('state, 'serializedState))=?,
   ~lockCallback:option(bool => unit)=?,
   unit
 ) => {
@@ -116,7 +126,7 @@ let createReduxJsBridgeMiddleware = (
     deserialize: obj => obj
   }));
 
-  (store: Types.partialStore('action, 'state)) => {
+  (store: partialStore('action, 'state)) => {
     let reduxJsStore = switch(_bridgedReduxJsStore^){
     | Some(reduxJsStore) => reduxJsStore
     | None => {
@@ -163,10 +173,10 @@ let createReduxJsBridgeMiddleware = (
         ()
       );
 
-      bridgedStore |. Types.subscribeGet(() => !_extensionLocked^ ? {
+      bridgedStore |. ReduxJsStore.subscribeGet(() => !_extensionLocked^ ? {
         _outstandingActionsCount := (_outstandingActionsCount^ - 1);        
         if(_outstandingActionsCount^ < 0){
-          store.dispatch(devToolsUpdateActionCreator(bridgedStore |. Types.getStateGet() |> Obj.magic |> stateSerializer.deserialize |> Obj.magic |> Js.Obj.assign(Js.Obj.empty()) |> Obj.magic));
+          store.dispatch(devToolsUpdateActionCreator(bridgedStore |. ReduxJsStore.getStateGet() |> Obj.magic |> stateSerializer.deserialize |> Obj.magic |> Js.Obj.assign(Js.Obj.empty()) |> Obj.magic));
         };
       } : ());
       
@@ -186,7 +196,7 @@ let createReduxJsBridgeMiddleware = (
         if(_outstandingActionsCount^ > 0){
           // relay the actions to the reduxjs store
           let jsAction = actionSerializer.serialize(action);
-          reduxJsStore |. Types.dispatchGet(jsAction |> Obj.magic);
+          reduxJsStore |. ReduxJsStore.dispatchGet(jsAction |> Obj.magic);
         }
       }
     }
@@ -196,10 +206,10 @@ let createReduxJsBridgeMiddleware = (
 let enhancer: (
   ~options: Extension.enhancerOptions('actionCreator), 
   ~devToolsUpdateActionCreator: ('state) => 'action,
-  ~actionSerializer: Types.customSerializer('action, 'serializedAction)=?,
-  ~stateSerializer: Types.customSerializer('state, 'serializedState)=?,
+  ~actionSerializer: customSerializer('action, 'serializedAction)=?,
+  ~stateSerializer: customSerializer('state, 'serializedState)=?,
   unit
-) => Types.storeEnhancer('action, 'state) = (~options, ~devToolsUpdateActionCreator, ~actionSerializer=?, ~stateSerializer=?, ()) => (storeCreator: Types.storeCreator('action, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
+) => Types.storeEnhancer('action, 'state, 'action, 'state) = (~options, ~devToolsUpdateActionCreator, ~actionSerializer=?, ~stateSerializer=?, ()) => (storeCreator: Types.storeCreator('action, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
   let reduxJsBridgeMiddleware = createReduxJsBridgeMiddleware(~options, ~devToolsUpdateActionCreator, ~actionSerializer?, ~stateSerializer?, ());
   
   storeCreator(
@@ -239,8 +249,8 @@ let useReducer: (
   ~devToolsUpdateActionCreator: ('state) => 'action,
   ~reducer: ('state, 'action) => 'state, 
   ~initial: 'state,
-  ~actionSerializer: Types.customSerializer('action, 'serializedAction)=?,
-  ~stateSerializer: Types.customSerializer('state, 'serializedState)=?,
+  ~actionSerializer: customSerializer('action, 'serializedAction)=?,
+  ~stateSerializer: customSerializer('state, 'serializedState)=?,
   unit
 ) => ('state, 'action => unit) = (~options, ~devToolsUpdateActionCreator, ~reducer, ~initial, ~actionSerializer=?, ~stateSerializer=?, ()) => {
   let lastAction: ref(option('action)) = React.useMemo0(() => ref(None));

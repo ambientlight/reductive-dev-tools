@@ -227,7 +227,7 @@ external devToolsExtensionLocked: bool = "__REDUX_DEVTOOLS_EXTENSION_LOCKED__";
 [@bs.module "redux-devtools-extension"]
 external _devToolsEnhancer: extension = "devToolsEnhancer";
 
-type composer('action, 'state) = Types.reduxJsStoreEnhancer('action, 'state) => Types.reduxJsStoreCreator('action, 'state) => Types.reduxJsStoreCreator('action, 'state);
+type composer('action, 'state) = ReduxJsStore.storeEnhancer('action, 'state, 'action, 'state) => ReduxJsStore.storeCreator('action, 'state) => ReduxJsStore.storeCreator('action, 'state);
 
 [@bs.module "redux-devtools-extension"]
 external composeWithDevTools: (. enhancerOptions('actionCreator)) => composer('action, 'state) = "composeWithDevTools";

@@ -1,9 +1,10 @@
+// TODO: make the next type definitions available at reductive side
+
 type store('action, 'state) = Reductive.Store.t('action, 'state);
 type reducer('action, 'state) = ('state, 'action) => 'state;
 
 type middleware('action, 'state) =
   (store('action, 'state), 'action => unit, 'action) => unit;
-
 
 type storeCreator('action, 'state) =
   (
@@ -14,33 +15,5 @@ type storeCreator('action, 'state) =
   ) =>
   store('action, 'state);
 
-type storeEnhancer('action, 'state) =
-  storeCreator('action, 'state) => storeCreator('action, 'state);
-
-type reduxJsListener = unit => unit;
-
-[@bs.deriving abstract]
-type reduxJsStore('state, 'action) = {
-  dispatch: 'action => unit,
-  subscribe: reduxJsListener => unit,
-  getState: unit => 'state,
-  replaceReducer: reducer('action, 'state) => reduxJsStore('state, 'action)
-};
-
-type reduxJsStoreCreator('action, 'state) = (
-  reducer('action, 'state),
-  'state,
-  Js.Undefined.t(middleware('action, 'state))
-) => reduxJsStore('state, 'action);
-
-type reduxJsStoreEnhancer('action, 'state) = reduxJsStoreCreator('action, 'state) => reduxJsStoreCreator('action, 'state);
-
-type customSerializer('a, 'b) = {
-  serialize: 'a => 'b,
-  deserialize: 'b => 'a
-};
-
-type partialStore('action, 'state) = {
-  getState: unit => 'state,
-  dispatch: 'action => unit
-};
+type storeEnhancer('action, 'state, 'enhancedAction, 'enhancedState) =
+  storeCreator('action, 'state) => storeCreator('enhancedAction, 'enhancedState);
