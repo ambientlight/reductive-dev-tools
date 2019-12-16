@@ -12,6 +12,71 @@ type t('action, 'state) = {
     option((t('action, 'state), 'action => unit, 'action) => unit),
 };
 
+let createDummyReduxJsStore = (options, lockCallback: bool => unit, didToggle: unit => unit) => { 
+  let composer = Extension.composeWithDevTools(. options);
+
+  /**
+    const store = createStore(reducer, preloadedState, composeEnhancers(
+      applyMiddleware(...middleware)
+    ));
+
+    the next thing is that applyMiddleware passed inside composedEnhancers
+    just assume no other middleware to apply
+   */
+  let devToolsStoreEnhancer = composer(devToolsEnhancer => devToolsEnhancer);
+  let dummyReduxJsStore: ('a, 'b) => Types.reduxJsStore('state, 'action) = (reducer, initial) => {
+    let listeners: array(unit => unit) = [||];
+    let state = ref(initial);
+
+    let dispatch = (action) => {
+      if(action##"type" == "LOCK_CHANGES"){
+        lockCallback(action##status)
+      } else if(action##"type" == "TOGGLE_ACTION"){
+        didToggle();
+      };
+
+      let newState = reducer(state^, action);
+      state := newState;
+      
+      listeners
+      |. Belt.Array.forEach(listener => listener());
+
+      state^
+    };
+
+    /**
+      if we don't mimic reduxjs's initial action devtools seem to lag the resulting state by 1
+      since redux-dev-tools seems to fake the initial @@redux/INIT action 
+      (we will see it in the monitor even if the thing below is not dispatched)
+     */ 
+    dispatch({ "type": "@@redux/INIT"} |> Obj.magic);
+
+    Types.reduxJsStore(
+      ~dispatch,
+      ~subscribe=listener => {
+        Js.Array.push(listener, listeners) |> ignore;
+      },
+      ~getState=() => state^,
+      ~replaceReducer=_reducer => {
+        // noop
+        let self = [%bs.raw "this"];
+        self
+      }
+    )
+  };
+
+  // let createStore: Types.reduxJsStoreCreator('action, 'state) = [%bs.raw "require('redux').createStore"];
+  let rec createStore = (reducer, initial, enhancer) => { 
+    switch(enhancer |> Js.toOption){
+    | Some(enhancer) => 
+      (enhancer @@ (createStore |> Obj.magic))(reducer, initial, ())
+    | None => dummyReduxJsStore(reducer, initial)
+    }
+  };
+
+  (reducer, initial, _enhancer) => createStore(reducer, initial, devToolsStoreEnhancer |> Obj.magic)
+};
+
 let createReduxJsBridgeMiddleware = (
   ~options: Extension.enhancerOptions('actionCreator), 
   ~devToolsUpdateActionCreator: ('state) => 'action,
@@ -55,7 +120,7 @@ let createReduxJsBridgeMiddleware = (
     let reduxJsStore = switch(_bridgedReduxJsStore^){
     | Some(reduxJsStore) => reduxJsStore
     | None => {
-      let bridgedStore = Extension.createDummyReduxJsStore(
+      let bridgedStore = createDummyReduxJsStore(
         options, 
         (locked) => { 
           _extensionLocked := locked;
@@ -98,10 +163,10 @@ let createReduxJsBridgeMiddleware = (
         ()
       );
 
-      bridgedStore.subscribe(() => !_extensionLocked^ ? {
+      bridgedStore |. Types.subscribeGet(() => !_extensionLocked^ ? {
         _outstandingActionsCount := (_outstandingActionsCount^ - 1);        
         if(_outstandingActionsCount^ < 0){
-          store.dispatch(devToolsUpdateActionCreator(bridgedStore.getState() |> Obj.magic |> stateSerializer.deserialize |> Obj.magic |> Js.Obj.assign(Js.Obj.empty()) |> Obj.magic));
+          store.dispatch(devToolsUpdateActionCreator(bridgedStore |. Types.getStateGet() |> Obj.magic |> stateSerializer.deserialize |> Obj.magic |> Js.Obj.assign(Js.Obj.empty()) |> Obj.magic));
         };
       } : ());
       
@@ -121,14 +186,14 @@ let createReduxJsBridgeMiddleware = (
         if(_outstandingActionsCount^ > 0){
           // relay the actions to the reduxjs store
           let jsAction = actionSerializer.serialize(action);
-          reduxJsStore.dispatch(jsAction |> Obj.magic);
+          reduxJsStore |. Types.dispatchGet(jsAction |> Obj.magic);
         }
       }
     }
   };
 };
 
-let nextEnhancer: (
+let enhancer: (
   ~options: Extension.enhancerOptions('actionCreator), 
   ~devToolsUpdateActionCreator: ('state) => 'action,
   ~actionSerializer: Types.customSerializer('action, 'serializedAction)=?,
@@ -169,7 +234,7 @@ let lockReducer = lock => reducer => (state, action) => {
   }
 };
 
-let useNextReducer: (
+let useReducer: (
   ~options: Extension.enhancerOptions('actionCreator), 
   ~devToolsUpdateActionCreator: ('state) => 'action,
   ~reducer: ('state, 'action) => 'state, 
@@ -178,40 +243,42 @@ let useNextReducer: (
   ~stateSerializer: Types.customSerializer('state, 'serializedState)=?,
   unit
 ) => ('state, 'action => unit) = (~options, ~devToolsUpdateActionCreator, ~reducer, ~initial, ~actionSerializer=?, ~stateSerializer=?, ()) => {
-  let connectionId = options |. Extension.nameGet;
   let lastAction: ref(option('action)) = React.useMemo0(() => ref(None));
   let extensionLocked = React.useMemo0(() => ref(false));
-  
-  let targetReducer = React.useMemo1(() => lockReducer(extensionLocked) @@ captureNextAction(lastAction) @@ reducer, [|reducer|]);
-  let (state, dispatch) = React.useReducer(targetReducer, initial); 
-  let reduxJsBridgeMiddleware = React.useMemo0(
-    () => createReduxJsBridgeMiddleware(~options, ~devToolsUpdateActionCreator, ~actionSerializer?, ~stateSerializer?, ~lockCallback=locked => { extensionLocked := locked }, ())
-  );
+  if(Extension.extension == Js.undefined){
+    React.useReducer(reducer, initial);
+  } else {
+    let targetReducer = React.useMemo1(() => lockReducer(extensionLocked) @@ captureNextAction(lastAction) @@ reducer, [|reducer|]);
+    let (state, dispatch) = React.useReducer(targetReducer, initial); 
+    let reduxJsBridgeMiddleware = React.useMemo0(
+      () => createReduxJsBridgeMiddleware(~options, ~devToolsUpdateActionCreator, ~actionSerializer?, ~stateSerializer?, ~lockCallback=locked => { extensionLocked := locked }, ())
+    );
 
-  let retained = React.useMemo0(() => ref(initial));
+    let retained = React.useMemo0(() => ref(initial));
 
-  /**
-    we have to go this way 
-    rather then having a reducer wrapping in higher-order reducer(like for reductive case above) 
-    that will relay to the extension
-    since we cannot ensure that clients will define the reducer outside of component scope,
-    in the opossite case internal reacts updateReducer will be called on each render
-    which will result in actions dispatched twice to reducer (https://github.com/facebook/react/issues/16295)
-   */
-  retained := state;
-  React.useEffect1(() => {
-    let middleware = reduxJsBridgeMiddleware({
-      getState: () => retained^,
-      dispatch
-    });
+    /**
+      we have to go this way 
+      rather then having a reducer wrapping in higher-order reducer(like for reductive case above) 
+      that will relay to the extension
+      since we cannot ensure that clients will define the reducer outside of component scope,
+      in the opossite case internal reacts updateReducer will be called on each render
+      which will result in actions dispatched twice to reducer (https://github.com/facebook/react/issues/16295)
+    */
+    retained := state;
+    React.useEffect1(() => {
+      let middleware = reduxJsBridgeMiddleware({
+        getState: () => retained^,
+        dispatch
+      });
 
-    switch(lastAction^){
-    | Some(action) => middleware((_action) => (), action)
-    | _ => ()
-    };
-    
-    None
-  }, [|state|]);
+      switch(lastAction^){
+      | Some(action) => middleware((_action) => (), action)
+      | _ => ()
+      };
+      
+      None
+    }, [|state|]);
 
-  (state, dispatch)
+    (state, dispatch)
+  }
 };

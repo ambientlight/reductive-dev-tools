@@ -18,6 +18,8 @@ type storeEnhancer('action, 'state) =
   storeCreator('action, 'state) => storeCreator('action, 'state);
 
 type reduxJsListener = unit => unit;
+
+[@bs.deriving abstract]
 type reduxJsStore('state, 'action) = {
   dispatch: 'action => unit,
   subscribe: reduxJsListener => unit,
