@@ -494,13 +494,14 @@ let constructOptions: (Extension.enhancerOptions('actionCreator), Extension.enha
   }) |> Obj.magic
 };
 
-let nextEnhancer: (
+let createReduxJsBridgeMiddleware = (
   ~options: Extension.enhancerOptions('actionCreator), 
   ~devToolsUpdateActionCreator: ('state) => 'action,
-  ~actionSerializer: Types.customSerializer('action, 'serializedAction)=?,
-  ~stateSerializer: Types.customSerializer('state, 'serializedState)=?,
+  ~actionSerializer:option(Types.customSerializer('action, 'serializedAction))=?,
+  ~stateSerializer:option(Types.customSerializer('state, 'serializedState))=?,
+  ~lockCallback:option(bool => unit)=?,
   unit
-) => Types.storeEnhancer('action, 'state) = (~options, ~devToolsUpdateActionCreator, ~actionSerializer=?, ~stateSerializer=?, ()) => (storeCreator: Types.storeCreator('action, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
+) => {
   let _bridgedReduxJsStore = ref(None);
   /**
     used to track whether actions have been dispatched
@@ -519,7 +520,7 @@ let nextEnhancer: (
     if it would be accompanied with @@INIT action we won't need to track if toggle was triggered
     as we need to resync the state before dispatching to reductive store all subsequent actions after toggled
    */
-  let _didToggle = ref(false);
+  let _justToggled = ref(false);
   let _didInit = ref(false);
 
   let actionSerializer = actionSerializer |> Obj.magic |. Belt.Option.getWithDefault(Types.({
@@ -528,32 +529,35 @@ let nextEnhancer: (
   }));
 
   let stateSerializer = stateSerializer |> Obj.magic |. Belt.Option.getWithDefault(Types.({
-    serialize: Utilities.Serializer.serializeObject,
-    deserialize: Utilities.Serializer.deserializeObject
+    serialize: obj => obj,
+    deserialize: obj => obj
   }));
 
-  let reduxJsBridgeMiddleware = (store) => {
+  (store: Types.partialStore('action, 'state)) => {
     let reduxJsStore = switch(_bridgedReduxJsStore^){
     | Some(reduxJsStore) => reduxJsStore
     | None => {
       let bridgedStore = Extension.createDummyReduxJsStore(
         options, 
-        (locked) => { _extensionLocked := locked },
-        () => { _didToggle := true})(
+        (locked) => { 
+          _extensionLocked := locked;
+          (lockCallback |. Belt.Option.getWithDefault(_ => ()))(locked)
+        },
+        () => { _justToggled := true})(
 
         // reduxjs reducer bridges reductive updated state 
         (state, action) => { 
-          if(_outstandingActionsCount^ == 0){
+          if(_outstandingActionsCount^ <= 0){
             /**
               synch reductive state during @@INIT dispatched from monitor (RESET/IMPORT/REVERT) + TOGGLE_ACTION
               no need to resynch @@INIT action on initial mount 
              */
-            if(action##"type" == "@@INIT" || _didToggle^){
-              _didToggle := false
+            if(action##"type" == "@@INIT" || _justToggled^){
+              _justToggled := false
 
               if(_didInit^){
                 _outstandingActionsCount := (_outstandingActionsCount^ - 1);
-                store |. Reductive.Store.dispatch(devToolsUpdateActionCreator(state |> Obj.magic |> stateSerializer.deserialize |> Obj.magic));
+                store.dispatch(devToolsUpdateActionCreator(state |> Obj.magic |> stateSerializer.deserialize |> Obj.magic |> Js.Obj.assign(Js.Obj.empty()) |> Obj.magic));
               } else {
                 _didInit := true
               }
@@ -561,30 +565,27 @@ let nextEnhancer: (
 
             if(action##"type" != "@@INIT"){
               _outstandingActionsCount := (_outstandingActionsCount^ - 1);
-              store |. Reductive.Store.dispatch(actionSerializer.deserialize(action |> Obj.magic));
+              store.dispatch(actionSerializer.deserialize(action |> Obj.magic));
             }
           };
 
-          store 
-          |. Reductive.Store.getState 
+          store.getState()
           |> stateSerializer.serialize
           |> Obj.magic
         },
 
-        store 
-        |. Reductive.Store.getState 
+        store.getState()
         |> stateSerializer.serialize
         |> Obj.magic,
         ()
       );
 
-      bridgedStore.subscribe(() => {
+      bridgedStore.subscribe(() => !_extensionLocked^ ? {
         _outstandingActionsCount := (_outstandingActionsCount^ - 1);        
         if(_outstandingActionsCount^ < 0){
-          store |. Reductive.Store.dispatch(devToolsUpdateActionCreator(bridgedStore.getState() |> Obj.magic |> stateSerializer.deserialize |> Obj.magic));
+          store.dispatch(devToolsUpdateActionCreator(bridgedStore.getState() |> Obj.magic |> stateSerializer.deserialize |> Obj.magic |> Js.Obj.assign(Js.Obj.empty()) |> Obj.magic));
         };
-        ()
-      });
+      } : ());
       
       _bridgedReduxJsStore := Some(bridgedStore);
       bridgedStore
@@ -607,7 +608,17 @@ let nextEnhancer: (
       }
     }
   };
+};
 
+let nextEnhancer: (
+  ~options: Extension.enhancerOptions('actionCreator), 
+  ~devToolsUpdateActionCreator: ('state) => 'action,
+  ~actionSerializer: Types.customSerializer('action, 'serializedAction)=?,
+  ~stateSerializer: Types.customSerializer('state, 'serializedState)=?,
+  unit
+) => Types.storeEnhancer('action, 'state) = (~options, ~devToolsUpdateActionCreator, ~actionSerializer=?, ~stateSerializer=?, ()) => (storeCreator: Types.storeCreator('action, 'state)) => (~reducer, ~preloadedState, ~enhancer=?, ()) => {
+  let reduxJsBridgeMiddleware = createReduxJsBridgeMiddleware(~options, ~devToolsUpdateActionCreator, ~actionSerializer?, ~stateSerializer?, ());
+  
   storeCreator(
     ~reducer, 
     ~preloadedState, 
@@ -615,8 +626,14 @@ let nextEnhancer: (
       ? enhancer
       : Some(enhancer 
         |. Belt.Option.mapWithDefault(
-          reduxJsBridgeMiddleware,
-          middleware => (store, next) => reduxJsBridgeMiddleware(store) @@ middleware(store) @@ next
+          store => reduxJsBridgeMiddleware({ 
+            getState: () => Reductive.Store.getState(store), 
+            dispatch: Reductive.Store.dispatch(store) 
+          }),
+          middleware => (store, next) => reduxJsBridgeMiddleware({ 
+            getState: () => Reductive.Store.getState(store), 
+            dispatch: Reductive.Store.dispatch(store) 
+          }) @@ middleware(store) @@ next
         ))),
     ());
 }
@@ -771,6 +788,66 @@ let captureAction: (string,
       connectionInfo.meta.lastAction = Some(Obj.magic(action));
       reducer(state, action);
     }}
+};
+
+let captureNextAction = lastAction => reducer => (state, action) => { 
+  lastAction := Some(action); 
+  reducer(state, action) 
+};
+
+let lockReducer = lock => reducer => (state, action) => {
+  if(!lock^){
+    reducer(state, action)
+  } else {
+    state
+  }
+};
+
+let useNextReducer: (
+  ~options: Extension.enhancerOptions('actionCreator), 
+  ~devToolsUpdateActionCreator: ('state) => 'action,
+  ~reducer: ('state, 'action) => 'state, 
+  ~initial: 'state,
+  ~actionSerializer: Types.customSerializer('action, 'serializedAction)=?,
+  ~stateSerializer: Types.customSerializer('state, 'serializedState)=?,
+  unit
+) => ('state, 'action => unit) = (~options, ~devToolsUpdateActionCreator, ~reducer, ~initial, ~actionSerializer=?, ~stateSerializer=?, ()) => {
+  let connectionId = options |. Extension.nameGet;
+  let lastAction: ref(option('action)) = React.useMemo0(() => ref(None));
+  let extensionLocked = React.useMemo0(() => ref(false));
+  
+  let targetReducer = React.useMemo1(() => lockReducer(extensionLocked) @@ captureNextAction(lastAction) @@ reducer, [|reducer|]);
+  let (state, dispatch) = React.useReducer(targetReducer, initial); 
+  let reduxJsBridgeMiddleware = React.useMemo0(
+    () => createReduxJsBridgeMiddleware(~options, ~devToolsUpdateActionCreator, ~actionSerializer?, ~stateSerializer?, ~lockCallback=locked => { extensionLocked := locked }, ())
+  );
+
+  let retained = React.useMemo0(() => ref(initial));
+
+  /**
+    we have to go this way 
+    rather then having a reducer wrapping in higher-order reducer(like for reductive case above) 
+    that will relay to the extension
+    since we cannot ensure that clients will define the reducer outside of component scope,
+    in the opossite case internal reacts updateReducer will be called on each render
+    which will result in actions dispatched twice to reducer (https://github.com/facebook/react/issues/16295)
+   */
+  retained := state;
+  React.useEffect1(() => {
+    let middleware = reduxJsBridgeMiddleware({
+      getState: () => retained^,
+      dispatch
+    });
+
+    switch(lastAction^){
+    | Some(action) => middleware((_action) => (), action)
+    | _ => ()
+    };
+    
+    None
+  }, [|state|]);
+
+  (state, dispatch)
 };
 
 let useReducer: (

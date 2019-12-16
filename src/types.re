@@ -37,3 +37,8 @@ type customSerializer('a, 'b) = {
   serialize: 'a => 'b,
   deserialize: 'b => 'a
 };
+
+type partialStore('action, 'state) = {
+  getState: unit => 'state,
+  dispatch: 'action => unit
+};

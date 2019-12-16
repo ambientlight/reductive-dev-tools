@@ -255,8 +255,6 @@ let createDummyReduxJsStore = (options, lockCallback: bool => unit, didToggle: u
         didToggle();
       };
 
-      Js.log(action);
-      
       let newState = reducer(state^, action);
       state := newState;
       
@@ -278,11 +276,7 @@ let createDummyReduxJsStore = (options, lockCallback: bool => unit, didToggle: u
       subscribe: listener => {
         Js.Array.push(listener, listeners) |> ignore;
       },
-      getState: () => {
-        // represents monitor's liftedState
-        // Js.log(state^);
-        state^
-      },
+      getState: () => state^,
       replaceReducer: _reducer => {
         // noop
         let self = [%bs.raw "this"];
