@@ -92,7 +92,7 @@ type enhancerOptions('actionCreator) = {
   /**
    * action creators functions to be available in the Dispatcher.
    */
-  [@bs.optional] actionCreators: Js.Dict.t('actionCreator),
+  [@bs.optional] actionCreators: Js.t({..} as 'actionCreator),
 
   /**
    * if more than one action is dispatched in the indicated interval, all new actions will be collected and sent at once.
