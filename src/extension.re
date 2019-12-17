@@ -202,9 +202,7 @@ type enhancerOptions('actionCreator) = {
   [@bs.optional] features: enhancerFeatures,
 
   /**
-   * if set to true, will include stack trace for every dispatched action, so you can see it in trace tab jumping directly to that part of code
-   * 
-   * NOT AVAILABLE FOR NON REDUX
+   * if set to true, will include stack trace for every dispatched action, so you can see it in trace tab jumping directly to that part of code 
    */
   [@bs.optional] trace: bool,
 
@@ -212,8 +210,6 @@ type enhancerOptions('actionCreator) = {
    * maximum stack trace frames to be stored (in case trace option was provided as true). 
    * By default it's 10. Note that, because extension's calls are excluded, the resulted frames could be 1 less. 
    * If trace option is a function, traceLimit will have no effect, as it's supposed to be handled there.
-   * 
-   * NOT AVAILABLE FOR NON REDUX
    */
   [@bs.optional] traceLimit: int  
 };

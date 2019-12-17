@@ -153,6 +153,12 @@ ReductiveDevTools.Extension.enhancerOptions(
     ~jump=true,
     ~dispatch=true,
     ()),
+
+  /* if set to true, will include stack trace for every dispatched action, so you can see it in trace tab */
+  ~trace=true,
+
+  /* maximum stack trace frames to be stored (in case trace option was provided as true) */
+  ~traceLimit=50
   ())
 ```
 
