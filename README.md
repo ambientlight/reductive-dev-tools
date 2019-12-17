@@ -62,6 +62,7 @@ let (state, send) = ReductiveDevTools.Connectors.useReducer(
 ```
 
 #### Usage with ReactReason legacy reducer component (jsx2)
+
 No longer supported. Please install latest from 0.x:
 
 ```
