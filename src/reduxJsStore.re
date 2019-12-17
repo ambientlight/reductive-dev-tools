@@ -8,10 +8,19 @@ type t('state, 'action) = {
   replaceReducer: Types.reducer('action, 'state) => t('state, 'action)
 };
 
+type middleware('action, 'state) =
+  (t('action, 'state), 'action => unit, 'action) => unit;
+
+type _storeCreator('action, 'state) = (
+  Types.reducer('action, 'state),
+  'state,
+  unit
+) => t('state, 'action);
+
+type storeEnhancer('action, 'state) = _storeCreator('action, 'state) => _storeCreator('action, 'state);
+
 type storeCreator('action, 'state) = (
   Types.reducer('action, 'state),
   'state,
-  Js.Undefined.t(Types.middleware('action, 'state))
-) => t('state, 'action);
-
-type storeEnhancer('action, 'state, 'enhancedAction, 'enhancedState) = storeCreator('action, 'state) => storeCreator('enhancedAction, 'enhancedState);
+  Js.Nullable.t(storeEnhancer('action, 'state))
+) => t('state, 'action)

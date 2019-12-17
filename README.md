@@ -110,8 +110,8 @@ ReductiveDevTools.Connectors.enhancer(
     ~name=__MODULE__, 
     ()),
   ~stateSerializer={
-    serialize: obj => obj |. ReductiveDevTools.Utilities.Serializer.serializeObject,
-    deserialize: obj => obj |. ReductiveDevTools.Utilities.Serializer.deserializeObject
+    serialize: ReductiveDevTools.Utilities.Serializer.serializeObject,
+    deserialize: ReductiveDevTools.Utilities.Serializer.deserializeObject
   },
   ())
 ```

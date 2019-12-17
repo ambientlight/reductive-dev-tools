@@ -31,14 +31,14 @@ let createDummyReduxJsStore = (options, lockCallback: bool => unit, didToggle: u
     ));
 
     the next thing is that applyMiddleware passed inside composedEnhancers
-    just assume no other middleware to apply
+    assume no other redux js middleware to apply
    */
   let devToolsStoreEnhancer = composer(devToolsEnhancer => devToolsEnhancer);
-  let dummyReduxJsStore: ('a, 'b) => ReduxJsStore.t('state, 'action) = (reducer, initial) => {
+  let dummyReduxJsStoreCreator = (reducer, initial, _) => {
     let listeners: array(unit => unit) = [||];
     let state = ref(initial);
 
-    let dispatch = (action) => {
+    let dispatch = (action: { .. "type": string }) => {
       if(action##"type" == "LOCK_CHANGES"){
         lockCallback(action##status)
       } else if(action##"type" == "TOGGLE_ACTION"){
@@ -59,7 +59,7 @@ let createDummyReduxJsStore = (options, lockCallback: bool => unit, didToggle: u
       since redux-dev-tools seems to fake the initial @@redux/INIT action 
       (we will see it in the monitor even if the thing below is not dispatched)
      */ 
-    dispatch({ "type": "@@redux/INIT"} |> Obj.magic);
+    dispatch({ "type": "@@redux/INIT", "status": false });
 
     ReduxJsStore.t(
       ~dispatch,
@@ -76,15 +76,16 @@ let createDummyReduxJsStore = (options, lockCallback: bool => unit, didToggle: u
   };
 
   // let createStore: Types.reduxJsStoreCreator('action, 'state) = [%bs.raw "require('redux').createStore"];
-  let rec createStore = (reducer, initial, enhancer) => { 
+  let createStore: ReduxJsStore.storeCreator('action, 'state) = (reducer, initial, enhancer) => {
     switch(enhancer |> Js.toOption){
-    | Some(enhancer) => 
-      (enhancer @@ (createStore |> Obj.magic))(reducer, initial, ())
-    | None => dummyReduxJsStore(reducer, initial)
+    | Some(enhancer) => {
+      (enhancer @@ dummyReduxJsStoreCreator)(reducer, initial, ())
+    }
+    | None => dummyReduxJsStoreCreator(reducer, initial, ())
     }
   };
 
-  (reducer, initial, _enhancer) => createStore(reducer, initial, devToolsStoreEnhancer |> Obj.magic)
+  (reducer, initial, _enhancer) => createStore(reducer, initial, Js.Nullable.return(devToolsStoreEnhancer))
 };
 
 let createReduxJsBridgeMiddleware = (
@@ -116,15 +117,17 @@ let createReduxJsBridgeMiddleware = (
   let _justToggled = ref(false);
   let _didInit = ref(false);
 
-  let actionSerializer = actionSerializer |> Obj.magic |. Belt.Option.getWithDefault(Types.({
+  // TODO: make serialization and below bridging sound with type system
+
+  let actionSerializer = actionSerializer |> Obj.magic |. Belt.Option.getWithDefault({
     serialize: Utilities.Serializer.serializeAction,
     deserialize: Utilities.Serializer.deserializeAction
-  }));
+  });
 
-  let stateSerializer = stateSerializer |> Obj.magic |. Belt.Option.getWithDefault(Types.({
+  let stateSerializer = stateSerializer |> Obj.magic |. Belt.Option.getWithDefault({
     serialize: obj => obj,
     deserialize: obj => obj
-  }));
+  });
 
   (store: partialStore('action, 'state)) => {
     let reduxJsStore = switch(_bridgedReduxJsStore^){
