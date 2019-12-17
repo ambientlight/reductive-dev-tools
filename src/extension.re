@@ -92,7 +92,7 @@ type enhancerOptions('actionCreator) = {
   /**
    * action creators functions to be available in the Dispatcher.
    */
-  [@bs.optional] actionCreators: Js.Dict.t('actionCreator),
+  [@bs.optional] actionCreators: Js.t({..} as 'actionCreator),
 
   /**
    * if more than one action is dispatched in the indicated interval, all new actions will be collected and sent at once.
@@ -202,9 +202,7 @@ type enhancerOptions('actionCreator) = {
   [@bs.optional] features: enhancerFeatures,
 
   /**
-   * if set to true, will include stack trace for every dispatched action, so you can see it in trace tab jumping directly to that part of code
-   * 
-   * NOT AVAILABLE FOR NON REDUX
+   * if set to true, will include stack trace for every dispatched action, so you can see it in trace tab jumping directly to that part of code 
    */
   [@bs.optional] trace: bool,
 
@@ -212,8 +210,6 @@ type enhancerOptions('actionCreator) = {
    * maximum stack trace frames to be stored (in case trace option was provided as true). 
    * By default it's 10. Note that, because extension's calls are excluded, the resulted frames could be 1 less. 
    * If trace option is a function, traceLimit will have no effect, as it's supposed to be handled there.
-   * 
-   * NOT AVAILABLE FOR NON REDUX
    */
   [@bs.optional] traceLimit: int  
 };
@@ -226,6 +222,11 @@ external devToolsExtensionLocked: bool = "__REDUX_DEVTOOLS_EXTENSION_LOCKED__";
 
 [@bs.module "redux-devtools-extension"]
 external _devToolsEnhancer: extension = "devToolsEnhancer";
+
+type composer('action, 'state) = ReduxJsStore.storeEnhancer('action, 'state) => ReduxJsStore.storeEnhancer('action, 'state);
+
+[@bs.module "redux-devtools-extension"]
+external composeWithDevTools: (. enhancerOptions('actionCreator)) => composer('action, 'state) = "composeWithDevTools";
 
 let devToolsEnhancer = _devToolsEnhancer;
 

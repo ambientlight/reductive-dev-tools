@@ -9,77 +9,60 @@
 ![image](assets/demo.gif)
 
 ## Installation 
-via npm:
 
-```bash
-npm install --save-dev reductive-dev-tools
-```
-then add `reductive-dev-tools` to your "bs-dependencies" inside `bsconfig.json`.
+1. with npm: 
+  ```bash
+  npm install --save-dev reductive-dev-tools
+  ```
+
+2. add `reductive-dev-tools` to your "bs-dependencies" inside `bsconfig.json`.
+3. add `-bs-g` into `"bsc-flags"` of your **bsconfig.json** to have variant and record field names available inside extension.
 
 **Peer depedencies**  
 reason-react, reductive, redux-devtools-extension, redux (redux-devtools-extension's peer dep.) should be also installed.
 
-## Caveats
+## Usage
+Utilize provided store enhancer `ReductiveDevTools.Connectors.enhancer` for **reductive** or `ReductiveDevTools.Connectors.useReducer` for **reason-react hooks** (jsx3). 
 
-1. Add `-bs-g` into `"bsc-flags"` of your **bsconfig.json** to have variant and record field names available inside extension.
-2. Prefer variants with constructors to plain (`SomeAction(unit)` to `SomeAction`) since plain varaints do no carry debug metedata with them (represented as numbers in js)
-3. Extension will be locked (newly dispatched actions will be ignored) when you jump back in action history.
-4. Records inside variants do not carry debug metadata in bucklescript yet, if needed you can tag them manually. See [Additional Tagging](https://github.com/ambientlight/reductive-dev-tools#additional-tagging)
-5. Action names won't be displayed when using extensible variants. [(Extensible variant name becomes "update")](https://github.com/ambientlight/reductive-dev-tools/issues/2)
+You need to pass devtools extension [options](#options) as `~options` and action creator that builds action when state update is dispatched from the monitor as `~devToolsUpdateActionCreator`. Additionally you can also pass `~stateSerializer` and `~actionSerializer` to override default serialization behaviour. Take a look at [Serialization](#serialization) to see if you need it.
 
-## Supported DevTools Features
-
-| feature | reductive | react hooks useReducer |
-|---------|-----------|-------------------|
-| pause   | ✔         | ✔                 |
-| lock    |    [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)       |     [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)              |
-| persist | ✔         | ✔                 |
-| export  | ✔         | ✔                 |
-| import  | ✔         | ✔                 |
-| jump    | ✔         | ✔                 |
-| skip    | ✔         | ✔                 |
-| sweep |    [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)       |     [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)              |
-| reorder |    [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)       |     [redux-devtools-extension/#618](https://github.com/zalmoxisus/redux-devtools-extension/issues/618)              |
-| dispatch| ✔         | ✔                 |
-| test    | REDUX ONLY| REDUX ONLY        |
-| trace   | REDUX ONLY| REDUX ONLY        | 
-
-## Usage with Reductive
-Utilize provided store enhancer `ReductiveDevTools.Connectors.reductiveEnhancer`
+#### reductive
 
 ```reason
-let storeEnhancer =
-  ReductiveDevTools.(
-    Connectors.reductiveEnhancer(
-      Extension.enhancerOptions(~name="MyApp", ()),
-    )
-  );
-  
-let storeCreator = storeEnhancer @@ Reductive.Store.create;
+let storeCreator = 
+  ReductiveDevTools.Connectors.enhancer(
+    ~options=ReductiveDevTools.Extension.enhancerOptions(
+      ~name=__MODULE__, 
+      ~actionCreators={
+        "actionYouCanDispatchFromMonitor": (value: int) => `YourActionOfChoice(value)
+          |. ReductiveDevTools.Utilities.Serializer.serializeAction
+      },
+      ()),
+    ~devToolsUpdateActionCreator=(devToolsState) => `DevToolsUpdate(devToolsState),
+    ()
+  ) 
+  @@ Reductive.Store.create;
 ```
 
-## Usage with React Hooks useReducer (jsx3)
-
-Replace `React.useReducer` with `ReductiveDevTools.Connectors.useReducer` and pass options with **unique** component id as name.
+#### React Hooks useReducer (jsx3)
 
 ```reason
 let (state, send) = ReductiveDevTools.Connectors.useReducer(
-  ReductiveDevTools.Extension.enhancerOptions(~name="MyComponent", ()),
-  reducer,
-  yourInitialState);
+  ~options=ReductiveDevTools.Extension.enhancerOptions(
+    ~name=__MODULE__, 
+    ~actionCreators={
+      "actionYouCanDispatchFromMonitor": (value: int) => `YourActionOfChoice(value)
+        |. ReductiveDevTools.Utilities.Serializer.serializeAction
+    },
+    ()),
+  ~devToolsUpdateActionCreator=(devToolsState) => `DevToolsUpdate(devToolsState),
+  ~reducer,
+  ~initial=yourInitialState,
+  ());
 ```
 
-handle `DevToolStateUpdate('state)` to support rewind, revert, import dispatched from [redux-devtools-extension](https://github.com/zalmoxisus/redux-devtools-extension) monitor
+#### Usage with ReactReason legacy reducer component (jsx2)
 
-```reason
-let reducer = (state, action) =>
-  switch (action) {
-  | `DevToolStateUpdate(devToolsState) => devToolsState
-  //....
-};
-```
-
-## Usage with ReactReason legacy reducer component (jsx2)
 No longer supported. Please install latest from 0.x:
 
 ```
@@ -87,6 +70,52 @@ npm install --save-dev reductive-dev-tools@0.2.6
 ```
 
 And refer to [old documentation](https://github.com/ambientlight/reductive-dev-tools/blob/dac77af64763d1aaed584a405c8caeb8b8597272/README.md#usage-with-reactreason-reducer-component).
+
+## Serialization
+
+### Actions
+[redux-devtools-extension](https://github.com/zalmoxisus/redux-devtools-extension) uses value under `type` key of action object for its name in the monitor. Most likely you are going to use [variants](https://reasonml.github.io/docs/en/variant) for actions, which need to be serialized into js objects to be usefully displayed inside the extension. Actions serialization is built-in. As an alternative, you can override default serializer by passing `~actionSerializer` like:
+
+```reason
+ReductiveDevTools.Connectors.enhancer(
+  ~options=ReductiveDevTools.Extension.enhancerOptions(
+    ~name=__MODULE__, 
+    ()),
+  ~actionSerializer={
+    serialize: obj => {
+      // your serialization logic
+      obj
+    },
+    deserialize: obj => {
+      // your deserialization logic
+      obj
+    }
+  },
+  ())
+```
+
+There are few caveats that apply to default serialization though.
+
+1. Make sure to add `-bs-g` into `"bsc-flags"` of your **bsconfig.json** to have variant names available.
+2. Variants with constructors should be prefered to plain (`SomeAction(unit)` to `SomeAction`) since plain varaints do no carry debug metedata(in symbols) with them (represented as numbers in js).
+3. Action names won't be displayed when using [extensible variants](https://caml.inria.fr/pub/docs/manual-ocaml/manual037.html#sec269), they also do not carry debug metadata. [Extensible variant name becomes "update"](https://github.com/ambientlight/reductive-dev-tools/issues/2)
+4. Records inside variants do not carry debug metadata in bucklescript yet, if needed you can tag them manually. See [Additional Tagging](#additional-tagging).
+
+### State
+
+There is no serialization applied to state by default. If you are on [bs-platform 7.0](https://github.com/BuckleScript/bucklescript/releases/tag/7.0.1), most likely you do not need it, since [ocaml records are compiled to js objects](https://bucklescript.github.io/blog/2019/11/18/whats-new-in-7). For earlier versions of [bs-platform](https://www.npmjs.com/package/bs-platform), please pass the next `~stateSerializer`:
+
+```reason
+ReductiveDevTools.Connectors.enhancer(
+  ~options=ReductiveDevTools.Extension.enhancerOptions(
+    ~name=__MODULE__, 
+    ()),
+  ~stateSerializer={
+    serialize: ReductiveDevTools.Utilities.Serializer.serializeObject,
+    deserialize: ReductiveDevTools.Utilities.Serializer.deserializeObject
+  },
+  ())
+```
 
 ## Options
 
@@ -96,11 +125,10 @@ ReductiveDevTools.Extension.enhancerOptions(
   ~name="SomeTest",
   
   /* action creators functions to be available in the Dispatcher. */
-  ~actionCreators=Js.Dict.fromList([
-    ("increment", (.) => CounterAction(Increment)),
-    ("decrement", (.) => CounterAction(Decrement)),
-    ("complexAppend", ((first, last) => StringAction(ComplexAppend(first, last))) |> Obj.magic)
-  ]),
+  ~actionCreators={
+    "increment": () => `Increment(()) |. ReductiveDevTools.Utilities.Serializer.serializeAction,
+    "decrement": () => `Decrement(()) |. ReductiveDevTools.Utilities.Serializer.serializeAction
+  },
   
   /* if more than one action is dispatched in the indicated interval, all new actions will be collected and sent at once */
   ~latency=500,
@@ -126,6 +154,12 @@ ReductiveDevTools.Extension.enhancerOptions(
     ~jump=true,
     ~dispatch=true,
     ()),
+
+  /* if set to true, will include stack trace for every dispatched action, so you can see it in trace tab */
+  ~trace=true,
+
+  /* maximum stack trace frames to be stored (in case trace option was provided as true) */
+  ~traceLimit=50
   ())
 ```
 
@@ -164,6 +198,3 @@ Two common usecases:
 	```
 	
 This can also be used to override bucklescript debug metadata(if really needed). Definitions are at: [utilities.rei](https://github.com/ambientlight/reductive-dev-tools/blob/a530ea6d09d7facad2b70c061703eff52cfa80b4/src/utilities.rei#L63-L67)
-
-## Word Of Caution
-Current implementation depends on internal bucklescript representation of debug metadata and variants in js. Changes to it in future may silently break the extension.
