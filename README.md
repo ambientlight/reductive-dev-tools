@@ -24,7 +24,7 @@ reason-react, reductive, redux-devtools-extension, redux (redux-devtools-extensi
 ## Usage
 Utilize provided store enhancer `ReductiveDevTools.Connectors.enhancer` for **reductive** or `ReductiveDevTools.Connectors.useReducer` for **reason-react hooks** (jsx3). 
 
-You need to pass devtools extension [options](#options) as `~options` and action creator that builds action when state update is dispatched from the monitor as `~devToolsUpdateActionCreator`. Additionally you can also pass `~stateSerializer` and `~actionSerializer` to override default serialization behaviour. Take a look at [Serialization](#serialization) to see if you need this.
+You need to pass devtools extension [options](#options) as `~options` and action creator that builds action when state update is dispatched from the monitor as `~devToolsUpdateActionCreator`. Additionally you can also pass `~stateSerializer` and `~actionSerializer` to override default serialization behaviour. Take a look at [Serialization](#serialization) to see if you need it.
 
 #### reductive
 
@@ -97,7 +97,7 @@ There are few caveats that apply to default serialization though.
 
 1. Make sure to add `-bs-g` into `"bsc-flags"` of your **bsconfig.json** to have variant names available.
 2. Variants with constructors should be prefered to plain (`SomeAction(unit)` to `SomeAction`) since plain varaints do no carry debug metedata(in symbols) with them (represented as numbers in js).
-3. Action names won't be displayed when using [extensible variants](https://caml.inria.fr/pub/docs/manual-ocaml/manual037.html#sec269), they also do not carry debug metadata. (Extensible variant name becomes "update")
+3. Action names won't be displayed when using [extensible variants](https://caml.inria.fr/pub/docs/manual-ocaml/manual037.html#sec269), they also do not carry debug metadata. [Extensible variant name becomes "update"](https://github.com/ambientlight/reductive-dev-tools/issues/2)
 4. Records inside variants do not carry debug metadata in bucklescript yet, if needed you can tag them manually. See [Additional Tagging](#additional-tagging).
 
 ### State
