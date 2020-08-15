@@ -104,7 +104,7 @@ There are few caveats that apply to default serialization though.
 
 ### State
 
-There is no serialization applied to state by default. If you are on [bs-platform 7.0](https://github.com/BuckleScript/bucklescript/releases/tag/7.0.1), most likely you do not need it, since [ocaml records are compiled to js objects](https://bucklescript.github.io/blog/2019/11/18/whats-new-in-7). For earlier versions of [bs-platform](https://www.npmjs.com/package/bs-platform), please pass the next `~stateSerializer`:
+There is no serialization (no longer) applied to state by default. If needed, you can define your custom serialization by passing `~stateSerializer`:
 
 ```reason
 ReductiveDevTools.Connectors.enhancer(
@@ -112,8 +112,14 @@ ReductiveDevTools.Connectors.enhancer(
     ~name=__MODULE__, 
     ()),
   ~stateSerializer={
-    serialize: ReductiveDevTools.Utilities.Serializer.serializeObject,
-    deserialize: ReductiveDevTools.Utilities.Serializer.deserializeObject
+    serialize: obj => {
+      // your serialization logic
+      obj
+    },
+    deserialize: obj => {
+      // your deserialization logic
+      obj
+    }
   },
   ())
 ```
