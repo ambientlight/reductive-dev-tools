@@ -4,7 +4,10 @@
 [![LICENSE](https://img.shields.io/github/license/ambientlight/reductive-dev-tools)](https://github.com/ambientlight/reductive-dev-tools/blob/master/LICENSE)
 [![ISSUES](https://img.shields.io/github/issues/ambientlight/reductive-dev-tools)](https://github.com/ambientlight/reductive-dev-tools/issues)
 
-[reductive](https://github.com/reasonml-community/reductive) and [reason-react](https://github.com/reasonml/reason-react) reducer component integration with [redux-devtools-extension](https://github.com/zalmoxisus/redux-devtools-extension)
+[reductive](https://github.com/reasonml-community/reductive) and [reason-react](https://github.com/reasonml/reason-react) reducer component integration with [redux-devtools-extension](https://github.com/zalmoxisus/redux-devtools-extension).
+
+Requires **bucklescript 8.x.x**, for lower versions of bucklescript, please rely on **2.0.0**.
+
 
 ![image](assets/demo.gif)
 
@@ -74,7 +77,7 @@ And refer to [old documentation](https://github.com/ambientlight/reductive-dev-t
 ## Serialization
 
 ### Actions
-[redux-devtools-extension](https://github.com/zalmoxisus/redux-devtools-extension) uses value under `type` key of action object for its name in the monitor. Most likely you are going to use [variants](https://reasonml.github.io/docs/en/variant) for actions, which need to be serialized into js objects to be usefully displayed inside the extension. Actions serialization is built-in. As an alternative, you can override default serializer by passing `~actionSerializer` like:
+With bucklescript 8 release, variants are js-objects at runtime, so this extension no longer serializes actions. By default it only extracts variant name from `Symbol(name)` when `-bs-g` flag is set in `bsconfig.json`.  If needed, you can define your custom serialization by passing `~actionSerializer` like:
 
 ```reason
 ReductiveDevTools.Connectors.enhancer(
@@ -98,12 +101,10 @@ There are few caveats that apply to default serialization though.
 
 1. Make sure to add `-bs-g` into `"bsc-flags"` of your **bsconfig.json** to have variant names available.
 2. Variants with constructors should be prefered to plain (`SomeAction(unit)` to `SomeAction`) since plain varaints do no carry debug metedata(in symbols) with them (represented as numbers in js).
-3. Action names won't be displayed when using [extensible variants](https://caml.inria.fr/pub/docs/manual-ocaml/manual037.html#sec269), they also do not carry debug metadata. [Extensible variant name becomes "update"](https://github.com/ambientlight/reductive-dev-tools/issues/2)
-4. Records inside variants do not carry debug metadata in bucklescript yet, if needed you can tag them manually. See [Additional Tagging](#additional-tagging).
 
 ### State
 
-There is no serialization applied to state by default. If you are on [bs-platform 7.0](https://github.com/BuckleScript/bucklescript/releases/tag/7.0.1), most likely you do not need it, since [ocaml records are compiled to js objects](https://bucklescript.github.io/blog/2019/11/18/whats-new-in-7). For earlier versions of [bs-platform](https://www.npmjs.com/package/bs-platform), please pass the next `~stateSerializer`:
+There is no serialization (no longer) applied to state by default. If needed, you can define your custom serialization by passing `~stateSerializer`:
 
 ```reason
 ReductiveDevTools.Connectors.enhancer(
@@ -111,8 +112,14 @@ ReductiveDevTools.Connectors.enhancer(
     ~name=__MODULE__, 
     ()),
   ~stateSerializer={
-    serialize: ReductiveDevTools.Utilities.Serializer.serializeObject,
-    deserialize: ReductiveDevTools.Utilities.Serializer.deserializeObject
+    serialize: obj => {
+      // your serialization logic
+      obj
+    },
+    deserialize: obj => {
+      // your deserialization logic
+      obj
+    }
   },
   ())
 ```
@@ -162,39 +169,3 @@ ReductiveDevTools.Extension.enhancerOptions(
   ~traceLimit=50
   ())
 ```
-
-## Additional Tagging
-You can also manually customize serialized objects keys and action names displayed inside extension.
-Two common usecases:
-
-1. Labeling variants with constructors.
-
-	```reason
-	type routerActions = [
-	  | `RouterLocationChanged(list(string), string, string)
-	];
-	
-	open ReductiveDevTools.Utilities;
-	Reductive.Store.dispatch(store, 
-	  `RouterLocationChanged(url.path, url.hash, url.search)
-	    |. labelVariant([|"path", "hash", "search"|]));
-	```
-2. Labeling record keys for records inside variants (since Records inside variants do not carry debug metadata in bucklescript yet).
-
-	```reason
-	type url = {
-	  path: list(string),
-	  hash: string,
-	  search: string,
-	};
-	type routerActions = [
-	  | `RouterLocationChanged(url)
-	];
-	
-	open ReductiveDevTools.Utilities;
-	Reductive.Store.dispatch(store, 
-	  `RouterLocationChanged(url
-	    |. tagRecord([|"path", "hash", "search"|]));
-	```
-	
-This can also be used to override bucklescript debug metadata(if really needed). Definitions are at: [utilities.rei](https://github.com/ambientlight/reductive-dev-tools/blob/a530ea6d09d7facad2b70c061703eff52cfa80b4/src/utilities.rei#L63-L67)
